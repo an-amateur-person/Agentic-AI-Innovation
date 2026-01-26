@@ -5,6 +5,13 @@ import os
 from dotenv import load_dotenv
 import sys
 import json
+from datetime import datetime
+from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 
 # Add agents directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'agents'))
@@ -24,13 +31,6 @@ st.write("Welcome to the Agentic AI interface. Configure your agent and interact
 # Define custom CSS for styling
 custom_css = """
 <style>
-/*body {
-    background-image: url('https://wallpaper.dog/large/10991978.jpg');
-    background-size: cover;
-    background-repeat: no-repeat;
-    opacity: 0.85;
-}*/
-
 /* Bot icon styling */
 .bot-icon {
     position: fixed;
@@ -46,10 +46,50 @@ custom_css = """
     50% { transform: translateY(-10px); }
 }
 
-/* Bot icon for chat messages */
-.stChatMessage [data-testid="chatAvatarIcon-assistant"]::before {
-    content: "🤖";
-    font-size: 24px;
+/* Group chat message styling */
+.chat-message {
+    padding: 12px;
+    margin: 8px 0;
+    border-radius: 10px;
+    border-left: 4px solid #ddd;
+}
+
+.user-message {
+    border-left-color: #2196F3;
+}
+
+.analyzer-message {
+    border-left-color: #9C27B0;
+}
+
+.product-message {
+    border-left-color: #4CAF50;
+}
+
+.manufacturing-message {
+    border-left-color: #FF9800;
+}
+
+.finance-message {
+    border-left-color: #E91E63;
+}
+
+.sender-name {
+    font-weight: bold;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.timestamp {
+    font-size: 0.75em;
+    color: #666;
+    margin-left: auto;
+}
+
+.message-content {
+    margin-top: 4px;
 }
 </style>
 """
@@ -63,7 +103,7 @@ st.markdown('<div class="bot-icon">🤖</div>', unsafe_allow_html=True)
 # Initialize all agents
 @st.cache_resource
 def initialize_all_agents():
-    """Initialize analysis, product, manufacturing, and finance agents"""
+    """Initialize analyzer, product, manufacturing, and finance agents"""
     agents = {}
     clients = {}
     errors = {}
@@ -86,13 +126,13 @@ def initialize_all_agents():
             credential=credential,
         )
         
-        # Analysis agent (orchestrator)
+        # Analyzer (orchestrator)
         try:
             agent_name = os.getenv("AGENT_ANALYSIS", "analysis-agent")
-            agents['analysis'] = project_client.agents.get(agent_name=agent_name)
+            agents['analyzer'] = project_client.agents.get(agent_name=agent_name)
         except:
-            agents['analysis'] = None
-            errors['analysis'] = "Analysis agent not found in Azure"
+            agents['analyzer'] = None
+            errors['analyzer'] = "Analyzer not found in Azure"
         
         clients['openai'] = project_client.get_openai_client()
         
@@ -134,7 +174,7 @@ with st.sidebar:
     if 'main' in init_errors:
         st.error(f"❌ Main initialization failed: {init_errors['main']}")
     else:
-        for agent_name in ['analysis', 'product', 'manufacturing', 'finance']:
+        for agent_name in ['analyzer', 'product', 'manufacturing', 'finance']:
             if agent_name in agents and agents[agent_name]:
                 st.success(f"✅ {agent_name.capitalize()} Agent")
             else:
@@ -175,10 +215,110 @@ except Exception as e:
     st.error(f"Failed to initialize agent: {str(e)}")
     st.info("Falling back to placeholder responses.")
 
-def get_agent_response(user_input, thinking_container):
-    """Get response from appropriate agent via analysis agent triage"""
+def generate_proposal_summary():
+    """Generate a comprehensive proposal summary from the conversation history"""
+    if len(st.session_state.messages) <= 1:
+        return None, "No conversation to summarize yet. Start chatting with the agents first!"
+    
+    # Build conversation context
+    conversation_text = ""
+    for msg in st.session_state.messages:
+        sender = msg.get("sender", "Unknown")
+        content = msg.get("content", "")
+        conversation_text += f"{sender}: {content}\n\n"
+    
+    # Create prompt for analyzer to generate proposal
+    proposal_prompt = f"""Based on the following multi-agent conversation, create a comprehensive draft proposal document.
+
+The proposal should include:
+1. Executive Summary
+2. Key Discussion Points
+3. Insights from Product Agent
+4. Insights from Manufacturing Agent
+5. Insights from Finance Agent
+6. Recommendations and Next Steps
+7. Conclusion
+
+Conversation History:
+{conversation_text}
+
+Generate a well-structured, professional proposal document."""
+    
+    try:
+        if agents.get('analyzer') and clients.get('openai'):
+            response = clients['openai'].responses.create(
+                input=[{"role": "user", "content": proposal_prompt}],
+                extra_body={"agent": {"name": agents['analyzer'].name, "type": "agent_reference"}},
+            )
+            proposal_text = response.output_text
+            return proposal_text, None
+        else:
+            return None, "Analyzer agent is not available to generate proposal."
+    except Exception as e:
+        return None, f"Error generating proposal: {str(e)}"
+
+def generate_pdf(proposal_text):
+    """Generate a PDF document from the proposal text"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter,
+                          rightMargin=72, leftMargin=72,
+                          topMargin=72, bottomMargin=18)
+    
+    # Container for the 'Flowable' objects
+    elements = []
+    
+    # Define styles
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='Justify', alignment=TA_JUSTIFY))
+    
+    # Title style
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor='#1E88E5',
+        spaceAfter=30,
+        alignment=TA_CENTER
+    )
+    
+    # Add title
+    title = Paragraph("Multi-Agent Collaboration Proposal", title_style)
+    elements.append(title)
+    elements.append(Spacer(1, 12))
+    
+    # Add date
+    date_text = f"Generated on: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}"
+    elements.append(Paragraph(date_text, styles['Normal']))
+    elements.append(Spacer(1, 12))
+    
+    # Process the proposal text
+    # Split by double newlines to get paragraphs
+    paragraphs = proposal_text.split('\n\n')
+    
+    for para in paragraphs:
+        if para.strip():
+            # Check if it's a heading (contains certain keywords or is short)
+            if any(keyword in para for keyword in ['Executive Summary', 'Key Discussion', 'Insights from', 
+                                                    'Recommendations', 'Conclusion', 'Next Steps']):
+                # It's likely a heading
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(para.strip(), styles['Heading2']))
+                elements.append(Spacer(1, 6))
+            else:
+                # Regular paragraph
+                elements.append(Paragraph(para.strip(), styles['Justify']))
+                elements.append(Spacer(1, 12))
+    
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+def get_multi_agent_conversation(user_input, thinking_container, conversation_history, agent_placeholders=None):
+    """Orchestrate a multi-agent conversation where agents can respond to each other"""
     
     thinking_steps = []
+    agent_responses = []
     
     def add_thinking_step(step):
         """Add a thinking step and display it immediately"""
@@ -186,175 +326,334 @@ def get_agent_response(user_input, thinking_container):
         with thinking_container:
             st.markdown("\n\n".join(thinking_steps))
     
-    add_thinking_step("🔍 Analysis Agent is evaluating your query...")
+    def display_agent_response_realtime(agent_name, content, icon, css_class):
+        """Display agent response in real-time"""
+        if agent_placeholders and agent_name in agent_placeholders:
+            response_time = datetime.now().strftime("%I:%M %p")
+            agent_placeholders[agent_name].markdown(f"""
+            <div class="chat-message {css_class}">
+                <div class="sender-name">
+                    <span>{icon} <strong>{agent_name}</strong></span>
+                    <span class="timestamp">{response_time}</span>
+                </div>
+                <div class="message-content">{content}</div>
+            </div>
+            """, unsafe_allow_html=True)
     
-    # Step 1: Ask analysis agent to triage the request
-    triage_prompt = f"""Analyze this user query and determine which specialist agent should handle it.
+    add_thinking_step("🔍 Analysis Agent is evaluating the conversation...")
+    
+    # Step 1: Determine which agents should participate
+    context_messages = "\n".join([f"{msg['sender']}: {msg['content']}" for msg in conversation_history[-5:]])
+    
+    triage_prompt = f"""Analyze this conversation and determine which specialist agents should participate in the response.
 
-User Query: "{user_input}"
+Recent Conversation:
+{context_messages}
+
+Latest User Message: "{user_input}"
 
 Available Specialists:
 1. PRODUCT - handles product features, design, specifications, quality, development, releases
 2. MANUFACTURING - handles production, operations, inventory, supply chain, factory processes
 3. FINANCE - handles costs, budget, revenue, expenses, financial planning, investments
-4. GENERAL - for queries that don't fit above categories or need general analysis
 
-Respond in JSON format:
+Respond in JSON format with agents that should participate (can be multiple):
 {{
-    "agent": "PRODUCT|MANUFACTURING|FINANCE|GENERAL",
-    "reasoning": "Brief explanation of why this agent was chosen",
-    "confidence": "high|medium|low"
+    "agents": ["PRODUCT", "MANUFACTURING", "FINANCE"],  // List relevant agents
+    "reasoning": "Brief explanation",
+    "conversation_order": ["PRODUCT", "FINANCE", "MANUFACTURING"]  // Order they should respond
 }}"""
 
     try:
-        # Call analysis agent for triage
-        add_thinking_step("🤔 Analyzing query context and intent...")
+        # Call analyzer for triage
+        add_thinking_step("🤔 Analyzing which agents should participate...")
         
-        if agents.get('analysis') and clients.get('openai'):
+        participating_agents = []
+        agent_order = []
+        
+        if agents.get('analyzer') and clients.get('openai'):
             triage_response = clients['openai'].responses.create(
                 input=[{"role": "user", "content": triage_prompt}],
-                extra_body={"agent": {"name": agents['analysis'].name, "type": "agent_reference"}},
+                extra_body={"agent": {"name": agents['analyzer'].name, "type": "agent_reference"}},
             )
             triage_text = triage_response.output_text
             
             # Parse the JSON response
             try:
-                # Extract JSON from response (handle markdown code blocks)
                 if "```json" in triage_text:
                     triage_text = triage_text.split("```json")[1].split("```")[0].strip()
                 elif "```" in triage_text:
                     triage_text = triage_text.split("```")[1].split("```")[0].strip()
                 
                 triage_data = json.loads(triage_text)
-                agent_type = triage_data.get("agent", "GENERAL").upper()
-                reasoning = triage_data.get("reasoning", "No reasoning provided")
-                confidence = triage_data.get("confidence", "medium")
+                participating_agents = [a.upper() for a in triage_data.get("agents", [])]
+                agent_order = [a.upper() for a in triage_data.get("conversation_order", participating_agents)]
+                reasoning = triage_data.get("reasoning", "")
                 
-                add_thinking_step(f"📊 Triage Decision: {agent_type} (Confidence: {confidence})")
+                add_thinking_step(f"📊 Participating Agents: {', '.join(participating_agents)}")
                 add_thinking_step(f"💡 Reasoning: {reasoning}")
                 
             except json.JSONDecodeError:
-                # Fallback to text parsing if JSON fails
-                add_thinking_step("⚠️ Using fallback text analysis...")
-                triage_text_upper = triage_text.upper()
-                if "PRODUCT" in triage_text_upper:
-                    agent_type = "PRODUCT"
-                elif "MANUFACTURING" in triage_text_upper:
-                    agent_type = "MANUFACTURING"
-                elif "FINANCE" in triage_text_upper:
-                    agent_type = "FINANCE"
-                else:
-                    agent_type = "GENERAL"
-                reasoning = triage_text
+                add_thinking_step("⚠️ Using fallback analysis...")
+                user_input_lower = user_input.lower()
+                if any(kw in user_input_lower for kw in ['product', 'feature', 'design']):
+                    participating_agents.append("PRODUCT")
+                if any(kw in user_input_lower for kw in ['manufacturing', 'production', 'inventory']):
+                    participating_agents.append("MANUFACTURING")
+                if any(kw in user_input_lower for kw in ['cost', 'budget', 'finance']):
+                    participating_agents.append("FINANCE")
+                agent_order = participating_agents
         else:
-            # Fallback to simple keyword matching if analysis agent not available
-            add_thinking_step("⚠️ Analysis agent unavailable, using keyword matching...")
+            # Fallback
+            add_thinking_step("⚠️ Analyzer unavailable, using keyword matching...")
             user_input_lower = user_input.lower()
+            if any(kw in user_input_lower for kw in ['product', 'feature', 'design']):
+                participating_agents.append("PRODUCT")
+            if any(kw in user_input_lower for kw in ['manufacturing', 'production', 'inventory']):
+                participating_agents.append("MANUFACTURING")
+            if any(kw in user_input_lower for kw in ['cost', 'budget', 'finance']):
+                participating_agents.append("FINANCE")
+            agent_order = participating_agents
+        
+        # If no specific agents identified, use analyzer
+        if not participating_agents:
+            participating_agents = ["ANALYZER"]
+            agent_order = ["ANALYZER"]
+            add_thinking_step("📊 Analyzer will handle this directly")
+        
+        # Step 2: Get responses from each agent in order
+        for idx, agent_type in enumerate(agent_order):
+            add_thinking_step(f"🎯 Getting response from {agent_type} Agent ({idx+1}/{len(agent_order)})...")
             
-            if any(kw in user_input_lower for kw in ['product', 'feature', 'design', 'quality', 'development']):
-                agent_type = "PRODUCT"
-                reasoning = "Product-related keywords detected"
-            elif any(kw in user_input_lower for kw in ['manufacturing', 'production', 'inventory', 'operations', 'factory']):
-                agent_type = "MANUFACTURING"
-                reasoning = "Manufacturing-related keywords detected"
-            elif any(kw in user_input_lower for kw in ['cost', 'budget', 'finance', 'revenue', 'expense', 'profit']):
-                agent_type = "FINANCE"
-                reasoning = "Finance-related keywords detected"
-            else:
-                agent_type = "GENERAL"
-                reasoning = "General query, no specific domain detected"
+            # Build context including previous agent responses in this round
+            agent_context = f"User Query: {user_input}\n\n"
+            if agent_responses:
+                agent_context += "Previous Agent Responses in this conversation:\n"
+                for prev_response in agent_responses:
+                    agent_context += f"\n{prev_response['sender']}: {prev_response['content'][:200]}...\n"
             
-            add_thinking_step(f"📊 Triage Decision: {agent_type}")
-            add_thinking_step(f"💡 Reasoning: {reasoning}")
+            agent_prompt = f"{agent_context}\n\nProvide your specialized perspective on this query. You can reference or build upon what other agents have shared."
+            
+            if agent_type == "PRODUCT":
+                if agents.get('product'):
+                    response = get_product_response(agent_prompt, agents['product'], clients.get('product', clients['openai']))
+                else:
+                    response = f"Based on the product perspective: {user_input}\n\nI can provide insights on product features, design, and specifications."
+                agent_responses.append({"sender": "Product Agent", "content": response, "icon": "🔧"})
+                add_thinking_step("✅ Product Agent responded")
+            
+            elif agent_type == "MANUFACTURING":
+                if agents.get('manufacturing'):
+                    response = get_manufacturing_response(agent_prompt, agents['manufacturing'], clients.get('manufacturing', clients['openai']))
+                else:
+                    response = f"From a manufacturing standpoint: {user_input}\n\nI can analyze production processes, operations, and supply chain considerations."
+                agent_responses.append({"sender": "Manufacturing Agent", "content": response, "icon": "🏭"})
+                add_thinking_step("✅ Manufacturing Agent responded")
+            
+            elif agent_type == "FINANCE":
+                if agents.get('finance'):
+                    response = get_finance_response(agent_prompt, agents['finance'], clients.get('finance', clients['openai']))
+                else:
+                    response = f"Looking at the financial aspects: {user_input}\n\nI can provide analysis on costs, budgets, and financial impacts."
+                agent_responses.append({"sender": "Finance Agent", "content": response, "icon": "💰"})
+                add_thinking_step("✅ Finance Agent responded")
+            
+            elif agent_type == "ANALYZER":
+                if agents.get('analyzer') and clients.get('openai'):
+                    response_obj = clients['openai'].responses.create(
+                        input=[{"role": "user", "content": agent_prompt}],
+                        extra_body={"agent": {"name": agents['analyzer'].name, "type": "agent_reference"}},
+                    )
+                    response = response_obj.output_text
+                else:
+                    response = f"Analyzing your query: {user_input}\n\nI can provide comprehensive analysis and coordinate with specialist agents."
+                agent_responses.append({"sender": "Analyzer", "content": response, "icon": "📊"})
+                add_thinking_step("✅ Analyzer responded")
         
-        # Step 2: Route to appropriate specialist agent
-        add_thinking_step(f"🎯 Routing to {agent_type} Agent...")
-        
-        if agent_type == "PRODUCT":
-            if agents.get('product'):
-                response = get_product_response(user_input, agents['product'], clients.get('product', clients['openai']))
-                add_thinking_step("✅ Product Agent response received")
-            else:
-                response = f"🔧 **Product Agent** (Simulated)\n\nHandling your product-related query: '{user_input}'\n\nThis is a placeholder response. The product agent will be configured in Azure to provide detailed product insights."
-                add_thinking_step("⚠️ Using simulated Product Agent response")
-        
-        elif agent_type == "MANUFACTURING":
-            if agents.get('manufacturing'):
-                response = get_manufacturing_response(user_input, agents['manufacturing'], clients.get('manufacturing', clients['openai']))
-                add_thinking_step("✅ Manufacturing Agent response received")
-            else:
-                response = f"🏭 **Manufacturing Agent** (Simulated)\n\nProcessing your operations query: '{user_input}'\n\nThis is a placeholder response. The manufacturing agent will be configured in Azure to provide detailed operational insights."
-                add_thinking_step("⚠️ Using simulated Manufacturing Agent response")
-        
-        elif agent_type == "FINANCE":
-            if agents.get('finance'):
-                response = get_finance_response(user_input, agents['finance'], clients.get('finance', clients['openai']))
-                add_thinking_step("✅ Finance Agent response received")
-            else:
-                response = f"💰 **Finance Agent** (Simulated)\n\nAnalyzing your financial query: '{user_input}'\n\nThis is a placeholder response. The finance agent will be configured in Azure to provide detailed financial analysis."
-                add_thinking_step("⚠️ Using simulated Finance Agent response")
-        
-        else:  # GENERAL
-            if agents.get('analysis') and clients.get('openai'):
-                response_obj = clients['openai'].responses.create(
-                    input=[{"role": "user", "content": user_input}],
-                    extra_body={"agent": {"name": agents['analysis'].name, "type": "agent_reference"}},
-                )
-                response = response_obj.output_text
-                add_thinking_step("✅ Analysis Agent handled query directly")
-            else:
-                response = f"📊 **Analysis Agent** (Simulated)\n\nProviding general analysis for: '{user_input}'\n\nThis is a placeholder response. The analysis agent will be configured in Azure to provide comprehensive insights."
-                add_thinking_step("⚠️ Using simulated Analysis Agent response")
+        # Step 3: Optional follow-up round where agents can respond to each other
+        if len(agent_responses) > 1:
+            add_thinking_step("🔄 Checking if agents want to respond to each other...")
+            # Limit to prevent infinite loops - just one follow-up round
+            follow_up_responses = []
+            
+            for agent_resp in agent_responses:
+                # Each agent can optionally add a brief follow-up
+                agent_name = agent_resp['sender']
+                other_responses = "\n".join([f"{r['sender']}: {r['content'][:150]}..." for r in agent_responses if r['sender'] != agent_name])
+                
+                follow_up_prompt = f"""Other agents have shared their perspectives:
+{other_responses}
+
+If you have a brief follow-up comment or want to build on what others said, share it (max 2 sentences). 
+If not needed, respond with 'NONE'."""
+                
+                # For simplicity, only allow follow-ups for configured agents
+                if "Product" in agent_name and agents.get('product'):
+                    try:
+                        follow_up = get_product_response(follow_up_prompt, agents['product'], clients.get('product', clients['openai']))
+                        if follow_up and "NONE" not in follow_up.upper() and len(follow_up.strip()) > 10:
+                            follow_up_responses.append({"sender": agent_name, "content": follow_up, "icon": agent_resp['icon'], "is_followup": True})
+                    except:
+                        pass
+            
+            if follow_up_responses:
+                add_thinking_step(f"💬 {len(follow_up_responses)} follow-up comments added")
+                agent_responses.extend(follow_up_responses)
         
         thinking_process = "\n\n".join(thinking_steps)
-        return thinking_process, response
+        return thinking_process, agent_responses
         
     except Exception as e:
         add_thinking_step(f"❌ Error: {str(e)}")
         thinking_process = "\n\n".join(thinking_steps)
-        return thinking_process, f"Error processing request: {str(e)}"
+        return thinking_process, [{"sender": "System", "content": f"Error: {str(e)}", "icon": "⚠️"}]
 
-# Initialize session state for chat messages
+# Initialize session state for chat messages with new structure
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "How can I help you?"}]
+    st.session_state.messages = [{
+        "role": "agent",
+        "sender": "Analyzer",
+        "content": "Welcome to the multi-agent chat! I can coordinate with Product, Manufacturing, and Finance agents to help answer your questions.",
+        "timestamp": datetime.now().strftime("%I:%M %p"),
+        "icon": "📊"
+    }]
 
 # Reset chat history button
 if st.sidebar.button("Reset chat history"):
-    st.session_state.messages = [{"role": "assistant", "content": "How can I help you?"}]
+    st.session_state.messages = [{
+        "role": "agent",
+        "sender": "Analyzer",
+        "content": "Welcome to the multi-agent chat! I can coordinate with Product, Manufacturing, and Finance agents to help answer your questions.",
+        "timestamp": datetime.now().strftime("%I:%M %p"),
+        "icon": "📊"
+    }]
     st.rerun()
 
-# Display chat messages
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
-        # Show thinking process for assistant messages if available
-        if msg["role"] == "assistant" and "thinking" in msg:
-            with st.expander("🧠 Thinking Process", expanded=False):
-                st.markdown(msg["thinking"])
+# Proposal generation section
+st.sidebar.markdown("---")
+st.sidebar.subheader("📄 Generate Proposal")
+st.sidebar.write("Create a comprehensive proposal document from the conversation.")
 
-# Receive user input and generate response
+if st.sidebar.button("Generate Proposal PDF", type="primary"):
+    if len(st.session_state.messages) <= 1:
+        st.sidebar.warning("Start a conversation first before generating a proposal!")
+    else:
+        with st.sidebar:
+            with st.spinner("Analyzer is creating your proposal..."):
+                proposal_text, error = generate_proposal_summary()
+                
+                if error:
+                    st.error(error)
+                elif proposal_text:
+                    # Generate PDF
+                    pdf_buffer = generate_pdf(proposal_text)
+                    
+                    # Offer download
+                    st.success("✅ Proposal generated successfully!")
+                    st.download_button(
+                        label="📥 Download Proposal PDF",
+                        data=pdf_buffer,
+                        file_name=f"proposal_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf",
+                        type="primary"
+                    )
+                    
+                    # Show preview
+                    with st.expander("Preview Proposal Content"):
+                        st.markdown(proposal_text)
+
+# Display chat messages in group chat style
+for msg in st.session_state.messages:
+    sender = msg.get("sender", "Unknown")
+    icon = msg.get("icon", "💬")
+    timestamp = msg.get("timestamp", "")
+    content = msg.get("content", "")
+    
+    # Determine CSS class based on sender
+    if msg["role"] == "user":
+        css_class = "user-message"
+    elif "Product" in sender:
+        css_class = "product-message"
+    elif "Manufacturing" in sender:
+        css_class = "manufacturing-message"
+    elif "Finance" in sender:
+        css_class = "finance-message"
+    elif "Analyzer" in sender:
+        css_class = "analyzer-message"
+    else:
+        css_class = "chat-message"
+    
+    # Display message with custom styling
+    st.markdown(f"""
+    <div class="chat-message {css_class}">
+        <div class="sender-name">
+            <span>{icon} <strong>{sender}</strong></span>
+            <span class="timestamp">{timestamp}</span>
+        </div>
+        <div class="message-content">{content}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Show thinking process for agent messages if available
+    if msg["role"] == "agent" and "thinking" in msg:
+        with st.expander("🧠 Thinking Process", expanded=False):
+            st.markdown(msg["thinking"])
+
+# Receive user input and generate multi-agent conversation
 if prompt := st.chat_input(placeholder="Ask me anything..."):
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.write(prompt)
+    current_time = datetime.now().strftime("%I:%M %p")
+    
+    # Add user message with new structure
+    user_message = {
+        "role": "user",
+        "sender": "User",
+        "content": prompt,
+        "timestamp": current_time,
+        "icon": "👤"
+    }
+    st.session_state.messages.append(user_message)
+    
+    # Display user message immediately
+    st.markdown(f"""
+    <div class="chat-message user-message">
+        <div class="sender-name">
+            <span>👤 <strong>User</strong></span>
+            <span class="timestamp">{current_time}</span>
+        </div>
+        <div class="message-content">{prompt}</div>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Create a status container for real-time thinking process
-    with st.status("🤔 Analysis Agent is thinking...", expanded=True) as status:
+    with st.status("🤔 Coordinating agents...", expanded=True) as status:
         thinking_container = st.empty()
         
-        # Generate response from appropriate agent via orchestration
-        thinking_process, response = get_agent_response(prompt, thinking_container)
+        # Create placeholders for each agent response (real-time display)
+        agent_placeholders = {}
+        for agent_name in ["Product Agent", "Manufacturing Agent", "Finance Agent"]:
+            agent_placeholders[agent_name] = st.empty()
         
-        status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+        # Generate multi-agent conversation with real-time updates
+        thinking_process, agent_responses = get_multi_agent_conversation(
+            prompt, 
+            thinking_container, 
+            st.session_state.messages,
+            agent_placeholders  # Pass placeholders for real-time updates
+        )
+        
+        status.update(label="✅ Agents have responded!", state="complete", expanded=False)
     
-    # Add assistant response
-    st.session_state.messages.append({
-        "role": "assistant", 
-        "content": response,
-        "thinking": thinking_process
-    })
-    with st.chat_message("assistant"):
-        st.write(response)
+    # Add each agent's response to message history
+    response_time = datetime.now().strftime("%I:%M %p")
+    for agent_resp in agent_responses:
+        agent_message = {
+            "role": "agent",
+            "sender": agent_resp["sender"],
+            "content": agent_resp["content"],
+            "timestamp": response_time,
+            "icon": agent_resp.get("icon", "🤖"),
+            "thinking": thinking_process if agent_resp == agent_responses[0] else None  # Only attach thinking to first response
+        }
+        st.session_state.messages.append(agent_message)
     
     st.rerun()
