@@ -1,41 +1,41 @@
-# Agentic AI Innovation - Multi-Agent System
+# Agentic AI Innovation - Product Agent System
 
-An intelligent Streamlit application that uses Azure AI agents with AI-powered orchestration to handle different types of queries.
+An intelligent Streamlit application where customers interact directly with a Product Agent that coordinates with specialized teams (Manufacturing and Finance) when needed.
 
 ## 🤖 Agent Architecture
 
-### Analysis Agent (AI-Powered Orchestrator)
-- **Role**: Intelligent triage and general analysis
+### Product Agent (Primary Interface) 🤖
+- **Role**: Main customer-facing agent
 - **Function**: 
-  - Receives user input and uses AI to understand context and intent
-  - Routes requests to appropriate specialist agents based on semantic understanding
-  - Handles general queries directly
-  - Provides detailed reasoning for routing decisions
-- **Display**: Shows complete thinking process in the UI
+  - Directly handles all customer interactions
+  - Analyzes customer queries to understand their needs
+  - Coordinates with specialist agents when expertise is needed
+  - Provides comprehensive responses combining product knowledge with specialist input
+  - Maintains conversation context and history
+- **Display**: Shows coordination process and specialist consultations
 - **Advantages**: 
-  - Smarter than keyword matching
-  - Understands nuanced and complex queries
-  - Adapts to context
+  - Single point of contact for customers
+  - Seamless specialist coordination
+  - Context-aware responses
+  - Efficient query handling
 
-### Specialized Agents
+### Specialist Agents (Support Teams)
 
-1. **Product Agent** 🔧
-   - Handles product-related queries
-   - Topics: product features, design, specifications, quality, development, releases, roadmap
+1. **Manufacturing Agent** 🏭
+   - Consulted for: production, assembly, inventory, supply chain, factory processes, capacity
+   - Provides specialist input when manufacturing topics are mentioned
 
-2. **Manufacturing Agent** 🏭
-   - Handles manufacturing and operations queries
-   - Topics: production, assembly, inventory, supply chain, factory processes, capacity
-
-3. **Finance Agent** 💰
-   - Handles financial and budget queries
-   - Topics: costs, pricing, budget, revenue, profit, expenses, investments, ROI
+2. **Finance Agent** 💰
+   - Consulted for: costs, pricing, budget, revenue, profit, expenses, investments, ROI
+   - Provides specialist input when financial topics are mentioned
 
 ## 🚀 Features
 
-- ✅ **AI-Powered Routing** - Analysis agent uses LLM for intelligent query triage
-- ✅ **Semantic Understanding** - Goes beyond keywords to understand intent
-- ✅ **Thinking Process Visualization** - See how the AI makes routing decisions
+- ✅ **Direct Customer Interaction** - Customers chat directly with Product Agent
+- ✅ **Smart Coordination** - Product Agent automatically consults specialists when needed
+- ✅ **Context-Aware** - Maintains conversation history for better responses
+- ✅ **Transparent Process** - See when and why specialists are consulted
+- ✅ **Proposal Generation** - Create PDF proposals from conversations
 - ✅ **Floating bot icon** with animation
 - ✅ **Chat history** with reset functionality
 - ✅ **Azure AI integration** with browser-based authentication
@@ -83,7 +83,9 @@ An intelligent Streamlit application that uses Azure AI agents with AI-powered o
    - `AZURE_SUBSCRIPTION_ID` - Your Azure subscription ID
    - `AZURE_AIPROJECT_ENDPOINT` - Your Azure AI project endpoint
    - `AZURE_LOCATION` - Azure region (e.g., swedencentral)
-   - Agent names (default values provided)
+   - `AGENT_PRODUCT` - Product Agent name (primary)
+   - `AGENT_MANUFACTURING` - Manufacturing Agent name (specialist)
+   - `AGENT_FINANCE` - Finance Agent name (specialist)
 
 ## 🏃 Running the Application
 
@@ -110,80 +112,83 @@ The application uses `InteractiveBrowserCredential` for Azure authentication:
 
 ```
 Agentic-AI-Innovation/
-├── agentic_ai.py                 # Main Streamlit application
+├── agentic_ai.py                 # Main Streamlit application with Product Agent interface
 ├── requirements.txt              # Python dependencies
 ├── .env                          # Environment configuration (not in git)
 ├── .env.example                  # Environment template
 ├── .gitignore                    # Git ignore rules
 ├── agents/
-│   ├── analysis_agent.py         # Original Azure AI setup code
-│   ├── product_agent.py          # Product specialist
-│   ├── manufacturing_agent.py    # Manufacturing specialist
-│   └── finance_agent.py          # Finance specialist
+│   ├── product_agent.py          # Product Agent (primary customer interface)
+│   ├── manufacturing_agent.py    # Manufacturing specialist (support)
+│   ├── finance_agent.py          # Finance specialist (support)
+│   └── orchestrator.py           # DEPRECATED - no longer used
 └── .venv/                        # Virtual environment
 ```
 
 **Note:** 
 - `.env` contains your actual credentials and is excluded from git
-- `analysis_agent.env` is deprecated - use `.env` instead
+- `orchestrator.py` is deprecated - Product Agent now handles coordination
 - All hardcoded values have been removed - everything uses environment variables
 
 ## 💡 Usage Examples
 
-**Product Query:**
+**Product Inquiry:**
 ```
-"What are the features of our new product line?"
+"Tell me about the features of your latest product"
 ```
-→ Routes to Product Agent
+→ Product Agent responds directly
 
-**Manufacturing Query:**
+**Manufacturing Question:**
 ```
-"What is our current production capacity?"
+"What's the production timeline and capacity for bulk orders?"
 ```
-→ Routes to Manufacturing Agent
+→ Product Agent consults Manufacturing specialist and provides comprehensive answer
 
-**Finance Query:**
+**Financial Inquiry:**
 ```
-"What's our budget for Q2?"
+"What's the pricing for enterprise licensing?"
 ```
-→ Routes to Finance Agent
+→ Product Agent consults Finance specialist and provides detailed pricing
 
-**General Query:**
+**Combined Query:**
 ```
-"Give me an overview of company operations"
+"Can you produce 10,000 units and what would the cost be?"
 ```
-→ Handled by Analysis Agent
+→ Product Agent consults both Manufacturing and Finance specialists
 
-## 🛠️ Customization
+## 🛠️ How It Works
 
-### Adding New Agents
+### Query Flow
 
-1. Create a new agent file in `agents/` directory
-2. Implement `initialize_*_agent()` and `get_*_response()` functions
-3. Update the Analysis Agent's system prompt in Azure to recognize new agent types
-4. Add initialization in `agentic_ai.py`
+1. **Customer asks a question** → Product Agent receives it
+2. **Analysis** → Product Agent analyzes if specialist input is needed
+3. **Coordination** → Consults Manufacturing/Finance agents if relevant topics detected
+4. **Response** → Product Agent synthesizes all information into comprehensive answer
 
-### Configuring Analysis Agent for Triage
+### Specialist Detection
 
-In Azure AI Studio, configure the Analysis Agent with this system prompt:
-
-```
-You are an intelligent triage agent for a multi-agent system. Analyze user queries and determine which specialist should handle them:
-
-- PRODUCT: product features, design, specifications, quality, development, releases
-- MANUFACTURING: production, operations, inventory, supply chain, factory processes
-- FINANCE: costs, pricing, budget, revenue, expenses, investments, financial planning
-- GENERAL: queries that don't fit above or need general analysis
-
-Respond in JSON format with agent type, reasoning, and confidence level.
-```
+Product Agent automatically detects when to consult specialists based on keywords:
+- **Manufacturing**: production, inventory, supply, operations, capacity, assembly
+- **Finance**: cost, price, budget, revenue, expense, investment, ROI
 
 ## 📊 Agent Status
 
 The sidebar displays real-time status of all agents:
-- ✅ Green: Agent initialized successfully
-- ⚠️ Yellow: Agent not configured (uses placeholder)
+- ✅ Green: Agent initialized successfully (Product Agent is required)
+- ⚠️ Yellow: Specialist not configured (system still works, limited capabilities)
 - ❌ Red: Initialization error
+
+**Agent Roles:**
+- **Product Agent (Primary)** - Must be configured for system to work
+- **Manufacturing & Finance (Specialists)** - Optional, consulted when needed
+
+## 🎯 Key Changes from Previous Version
+
+- ❌ **Removed**: Analysis Agent / Orchestrator - no longer needed
+- ✅ **Simplified**: Direct customer → Product Agent interaction
+- ✅ **Enhanced**: Product Agent now coordinates with specialists automatically
+- ✅ **Improved**: Single conversation thread, better context retention
+- ✅ **Streamlined**: Reduced complexity, faster responses
 
 ## 🤝 Contributing
 
@@ -218,6 +223,11 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 - Copy `.env.example` to `.env`
 - Fill in all required values
 - Never commit `.env` to git (it's in .gitignore)
+
+**Product Agent not responding:**
+- Verify `AGENT_PRODUCT` is correctly set in `.env`
+- Check that the agent exists in your Azure AI project
+- Specialist agents are optional - system works without them but with reduced capabilities
 
 ---
 

@@ -16,7 +16,12 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 # Add agents directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'agents'))
 
-from product_agent import initialize_product_agent, get_product_response
+from product_agent import (
+    initialize_product_agent, 
+    get_product_response, 
+    get_coordinated_response,
+    analyze_query_needs
+)
 from manufacturing_agent import initialize_manufacturing_agent, get_manufacturing_response
 from finance_agent import initialize_finance_agent, get_finance_response
 
@@ -24,9 +29,9 @@ from finance_agent import initialize_finance_agent, get_finance_response
 load_dotenv(".env")
 
 # Webpage configurations
-st.set_page_config(page_title="Agentic AI Interface", page_icon=":bot:")
-st.title("Agentic AI Interface")
-st.write("Welcome to the Agentic AI interface. Configure your agent and interact with it below.")
+st.set_page_config(page_title="Product Agent Interface", page_icon="🤖")
+st.title("🤖 Product Agent - Customer Service")
+st.write("Welcome! I'm your Product Agent. Ask me anything about products, and I'll coordinate with specialized teams when needed.")
 
 # Define custom CSS for styling
 custom_css = """
@@ -46,7 +51,7 @@ custom_css = """
     50% { transform: translateY(-10px); }
 }
 
-/* Group chat message styling */
+/* Chat message styling */
 .chat-message {
     padding: 12px;
     margin: 8px 0;
@@ -56,10 +61,6 @@ custom_css = """
 
 .user-message {
     border-left-color: #2196F3;
-}
-
-.analyzer-message {
-    border-left-color: #9C27B0;
 }
 
 .product-message {
@@ -90,6 +91,17 @@ custom_css = """
 
 .message-content {
     margin-top: 4px;
+    line-height: 1.6;
+}
+
+.specialist-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    margin-left: 8px;
+    background-color: #FFF9C4;
+    color: #F57F17;
 }
 </style>
 """
@@ -103,48 +115,23 @@ st.markdown('<div class="bot-icon">🤖</div>', unsafe_allow_html=True)
 # Initialize all agents
 @st.cache_resource
 def initialize_all_agents():
-    """Initialize analyzer, product, manufacturing, and finance agents"""
+    """Initialize product agent and specialized agents"""
     agents = {}
     clients = {}
     errors = {}
     
-    # Analysis Agent
     try:
-        myEndpoint = os.getenv("AZURE_AIPROJECT_ENDPOINT")
-        tenant_id = os.getenv("AZURE_TENANT_ID")
-        
-        if not myEndpoint or not tenant_id:
-            raise ValueError("Missing required environment variables: AZURE_AIPROJECT_ENDPOINT or AZURE_TENANT_ID")
-        
-        credential = InteractiveBrowserCredential(
-            tenant_id=tenant_id,
-            additionally_allowed_tenants=["*"]
-        )
-        
-        project_client = AIProjectClient(
-            endpoint=myEndpoint,
-            credential=credential,
-        )
-        
-        # Analyzer (orchestrator)
+        # Initialize Product Agent (primary)
         try:
-            agent_name = os.getenv("AGENT_ANALYSIS", "analysis-agent")
-            agents['analyzer'] = project_client.agents.get(agent_name=agent_name)
-        except:
-            agents['analyzer'] = None
-            errors['analyzer'] = "Analyzer not found in Azure"
-        
-        clients['openai'] = project_client.get_openai_client()
-        
-        # Initialize specialized agents
-        try:
-            product_agent, product_client = initialize_product_agent()
+            product_agent, product_client, project_client = initialize_product_agent()
             agents['product'] = product_agent
             clients['product'] = product_client
+            clients['project'] = project_client
         except Exception as e:
             agents['product'] = None
             errors['product'] = str(e)
         
+        # Initialize Manufacturing Agent (specialist)
         try:
             mfg_agent, mfg_client = initialize_manufacturing_agent()
             agents['manufacturing'] = mfg_agent
@@ -153,6 +140,7 @@ def initialize_all_agents():
             agents['manufacturing'] = None
             errors['manufacturing'] = str(e)
         
+        # Initialize Finance Agent (specialist)
         try:
             finance_agent, finance_client = initialize_finance_agent()
             agents['finance'] = finance_agent
@@ -172,53 +160,28 @@ agents, clients, init_errors = initialize_all_agents()
 with st.sidebar:
     st.subheader("🤖 Agent Status")
     if 'main' in init_errors:
-        st.error(f"❌ Main initialization failed: {init_errors['main']}")
+        st.error(f"❌ Initialization failed: {init_errors['main']}")
     else:
-        for agent_name in ['analyzer', 'product', 'manufacturing', 'finance']:
+        # Product Agent status
+        if agents.get('product'):
+            st.success("✅ Product Agent (Primary)")
+        else:
+            error_msg = init_errors.get('product', "Not configured")
+            st.error(f"❌ Product Agent: {error_msg}")
+        
+        st.markdown("**Specialist Agents:**")
+        # Specialist agents
+        for agent_name in ['manufacturing', 'finance']:
             if agent_name in agents and agents[agent_name]:
-                st.success(f"✅ {agent_name.capitalize()} Agent")
+                st.success(f"✅ {agent_name.capitalize()}")
             else:
                 error_msg = init_errors.get(agent_name, "Not configured")
                 st.warning(f"⚠️ {agent_name.capitalize()}: {error_msg}")
 
-# Initialize Azure AI agent
-@st.cache_resource
-def initialize_agent():
-    # Load endpoint from environment
-    myEndpoint = os.getenv("AZURE_AIPROJECT_ENDPOINT")
-    tenant_id = os.getenv("AZURE_TENANT_ID")
-    
-    if not myEndpoint or not tenant_id:
-        raise ValueError("Missing required environment variables")
-    
-    # Use InteractiveBrowserCredential with specific tenant
-    # This will open a browser window for authentication to the correct tenant
-    credential = InteractiveBrowserCredential(
-        tenant_id=tenant_id,
-        additionally_allowed_tenants=["*"]
-    )
-    
-    project_client = AIProjectClient(
-        endpoint=myEndpoint,
-        credential=credential,
-    )
-    agent_name = os.getenv("AGENT_ANALYSIS", "analysis-agent")
-    agent = project_client.agents.get(agent_name=agent_name)
-    openai_client = project_client.get_openai_client()
-    return agent, openai_client
-
-try:
-    agent, openai_client = initialize_agent()
-    agent_initialized = True
-except Exception as e:
-    agent_initialized = False
-    st.error(f"Failed to initialize agent: {str(e)}")
-    st.info("Falling back to placeholder responses.")
-
 def generate_proposal_summary():
     """Generate a comprehensive proposal summary from the conversation history"""
     if len(st.session_state.messages) <= 1:
-        return None, "No conversation to summarize yet. Start chatting with the agents first!"
+        return None, "No conversation to summarize yet. Start chatting with the Product Agent first!"
     
     # Build conversation context
     conversation_text = ""
@@ -227,15 +190,15 @@ def generate_proposal_summary():
         content = msg.get("content", "")
         conversation_text += f"{sender}: {content}\n\n"
     
-    # Create prompt for analyzer to generate proposal
-    proposal_prompt = f"""Based on the following multi-agent conversation, create a comprehensive draft proposal document.
+    # Create prompt for product agent to generate proposal
+    proposal_prompt = f"""Based on the following conversation with the customer, create a comprehensive draft proposal document.
 
 The proposal should include:
 1. Executive Summary
-2. Key Discussion Points
-3. Insights from Product Agent
-4. Insights from Manufacturing Agent
-5. Insights from Finance Agent
+2. Customer Requirements and Discussion Points
+3. Product Recommendations
+4. Manufacturing Considerations (if applicable)
+5. Financial Overview (if applicable)
 6. Recommendations and Next Steps
 7. Conclusion
 
@@ -245,19 +208,19 @@ Conversation History:
 Generate a well-structured, professional proposal document."""
     
     try:
-        if agents.get('analyzer') and clients.get('openai'):
-            response = clients['openai'].responses.create(
+        if agents.get('product') and clients.get('product'):
+            response = clients['product'].responses.create(
                 input=[{"role": "user", "content": proposal_prompt}],
-                extra_body={"agent": {"name": agents['analyzer'].name, "type": "agent_reference"}},
+                extra_body={"agent": {"name": agents['product'].name, "type": "agent_reference"}},
             )
             proposal_text = response.output_text
             return proposal_text, None
         else:
-            return None, "Analyzer agent is not available to generate proposal."
+            return None, "Product agent is not available to generate proposal."
     except Exception as e:
         return None, f"Error generating proposal: {str(e)}"
 
-def generate_pdf(proposal_text):
+def get_pdf_buffer(proposal_text):
     """Generate a PDF document from the proposal text"""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter,
@@ -282,7 +245,7 @@ def generate_pdf(proposal_text):
     )
     
     # Add title
-    title = Paragraph("Multi-Agent Collaboration Proposal", title_style)
+    title = Paragraph("Customer Proposal - Product Agent", title_style)
     elements.append(title)
     elements.append(Spacer(1, 12))
     
@@ -292,15 +255,14 @@ def generate_pdf(proposal_text):
     elements.append(Spacer(1, 12))
     
     # Process the proposal text
-    # Split by double newlines to get paragraphs
     paragraphs = proposal_text.split('\n\n')
     
     for para in paragraphs:
         if para.strip():
-            # Check if it's a heading (contains certain keywords or is short)
-            if any(keyword in para for keyword in ['Executive Summary', 'Key Discussion', 'Insights from', 
-                                                    'Recommendations', 'Conclusion', 'Next Steps']):
-                # It's likely a heading
+            # Check if it's a heading
+            if any(keyword in para for keyword in ['Executive Summary', 'Customer Requirements', 
+                                                    'Product Recommendations', 'Manufacturing',
+                                                    'Financial', 'Recommendations', 'Conclusion', 'Next Steps']):
                 elements.append(Spacer(1, 12))
                 elements.append(Paragraph(para.strip(), styles['Heading2']))
                 elements.append(Spacer(1, 6))
@@ -314,218 +276,86 @@ def generate_pdf(proposal_text):
     buffer.seek(0)
     return buffer
 
-def get_multi_agent_conversation(user_input, thinking_container, conversation_history, agent_placeholders=None):
-    """Orchestrate a multi-agent conversation where agents can respond to each other"""
-    
+def handle_customer_query(user_input, thinking_container):
+    """
+    Handle customer query through Product Agent
+    Product Agent coordinates with specialists when needed
+    """
     thinking_steps = []
-    agent_responses = []
     
     def add_thinking_step(step):
-        """Add a thinking step and display it immediately"""
         thinking_steps.append(step)
         with thinking_container:
             st.markdown("\n\n".join(thinking_steps))
     
-    def display_agent_response_realtime(agent_name, content, icon, css_class):
-        """Display agent response in real-time"""
-        if agent_placeholders and agent_name in agent_placeholders:
-            response_time = datetime.now().strftime("%I:%M %p")
-            agent_placeholders[agent_name].markdown(f"""
-            <div class="chat-message {css_class}">
-                <div class="sender-name">
-                    <span>{icon} <strong>{agent_name}</strong></span>
-                    <span class="timestamp">{response_time}</span>
-                </div>
-                <div class="message-content">{content}</div>
-            </div>
-            """, unsafe_allow_html=True)
+    add_thinking_step("🤖 Product Agent is analyzing your query...")
     
-    add_thinking_step("🔍 Analysis Agent is evaluating the conversation...")
+    # Analyze what specialists might be needed
+    analysis = analyze_query_needs(user_input)
     
-    # Step 1: Determine which agents should participate
-    context_messages = "\n".join([f"{msg['sender']}: {msg['content']}" for msg in conversation_history[-5:]])
+    if analysis['needs_manufacturing'] or analysis['needs_finance']:
+        specialist_list = []
+        if analysis['needs_manufacturing']:
+            specialist_list.append("Manufacturing")
+        if analysis['needs_finance']:
+            specialist_list.append("Finance")
+        add_thinking_step(f"🔍 Will consult with: {', '.join(specialist_list)} specialist(s)")
     
-    triage_prompt = f"""Analyze this conversation and determine which specialist agents should participate in the response.
-
-Recent Conversation:
-{context_messages}
-
-Latest User Message: "{user_input}"
-
-Available Specialists:
-1. PRODUCT - handles product features, design, specifications, quality, development, releases
-2. MANUFACTURING - handles production, operations, inventory, supply chain, factory processes
-3. FINANCE - handles costs, budget, revenue, expenses, financial planning, investments
-
-Respond in JSON format with agents that should participate (can be multiple):
-{{
-    "agents": ["PRODUCT", "MANUFACTURING", "FINANCE"],  // List relevant agents
-    "reasoning": "Brief explanation",
-    "conversation_order": ["PRODUCT", "FINANCE", "MANUFACTURING"]  // Order they should respond
-}}"""
-
+    # Get coordinated response
+    add_thinking_step("💬 Preparing comprehensive response...")
+    
     try:
-        # Call analyzer for triage
-        add_thinking_step("🤔 Analyzing which agents should participate...")
-        
-        participating_agents = []
-        agent_order = []
-        
-        if agents.get('analyzer') and clients.get('openai'):
-            triage_response = clients['openai'].responses.create(
-                input=[{"role": "user", "content": triage_prompt}],
-                extra_body={"agent": {"name": agents['analyzer'].name, "type": "agent_reference"}},
+        if agents.get('product'):
+            # Get coordinated response
+            result = get_coordinated_response(
+                user_input,
+                agents['product'],
+                clients['product'],
+                (agents.get('manufacturing'), clients.get('manufacturing')) if analysis['needs_manufacturing'] else None,
+                (agents.get('finance'), clients.get('finance')) if analysis['needs_finance'] else None,
+                st.session_state.messages
             )
-            triage_text = triage_response.output_text
             
-            # Parse the JSON response
-            try:
-                if "```json" in triage_text:
-                    triage_text = triage_text.split("```json")[1].split("```")[0].strip()
-                elif "```" in triage_text:
-                    triage_text = triage_text.split("```")[1].split("```")[0].strip()
-                
-                triage_data = json.loads(triage_text)
-                participating_agents = [a.upper() for a in triage_data.get("agents", [])]
-                agent_order = [a.upper() for a in triage_data.get("conversation_order", participating_agents)]
-                reasoning = triage_data.get("reasoning", "")
-                
-                add_thinking_step(f"📊 Participating Agents: {', '.join(participating_agents)}")
-                add_thinking_step(f"💡 Reasoning: {reasoning}")
-                
-            except json.JSONDecodeError:
-                add_thinking_step("⚠️ Using fallback analysis...")
-                user_input_lower = user_input.lower()
-                if any(kw in user_input_lower for kw in ['product', 'feature', 'design']):
-                    participating_agents.append("PRODUCT")
-                if any(kw in user_input_lower for kw in ['manufacturing', 'production', 'inventory']):
-                    participating_agents.append("MANUFACTURING")
-                if any(kw in user_input_lower for kw in ['cost', 'budget', 'finance']):
-                    participating_agents.append("FINANCE")
-                agent_order = participating_agents
+            add_thinking_step("✅ Response ready!")
+            
+            return {
+                'thinking': "\n\n".join(thinking_steps),
+                'main_response': result['main_response'],
+                'specialist_responses': result['specialist_responses']
+            }
         else:
-            # Fallback
-            add_thinking_step("⚠️ Analyzer unavailable, using keyword matching...")
-            user_input_lower = user_input.lower()
-            if any(kw in user_input_lower for kw in ['product', 'feature', 'design']):
-                participating_agents.append("PRODUCT")
-            if any(kw in user_input_lower for kw in ['manufacturing', 'production', 'inventory']):
-                participating_agents.append("MANUFACTURING")
-            if any(kw in user_input_lower for kw in ['cost', 'budget', 'finance']):
-                participating_agents.append("FINANCE")
-            agent_order = participating_agents
-        
-        # If no specific agents identified, use analyzer
-        if not participating_agents:
-            participating_agents = ["ANALYZER"]
-            agent_order = ["ANALYZER"]
-            add_thinking_step("📊 Analyzer will handle this directly")
-        
-        # Step 2: Get responses from each agent in order
-        for idx, agent_type in enumerate(agent_order):
-            add_thinking_step(f"🎯 Getting response from {agent_type} Agent ({idx+1}/{len(agent_order)})...")
-            
-            # Build context including previous agent responses in this round
-            agent_context = f"User Query: {user_input}\n\n"
-            if agent_responses:
-                agent_context += "Previous Agent Responses in this conversation:\n"
-                for prev_response in agent_responses:
-                    agent_context += f"\n{prev_response['sender']}: {prev_response['content'][:200]}...\n"
-            
-            agent_prompt = f"{agent_context}\n\nProvide your specialized perspective on this query. You can reference or build upon what other agents have shared."
-            
-            if agent_type == "PRODUCT":
-                if agents.get('product'):
-                    response = get_product_response(agent_prompt, agents['product'], clients.get('product', clients['openai']))
-                else:
-                    response = f"Based on the product perspective: {user_input}\n\nI can provide insights on product features, design, and specifications."
-                agent_responses.append({"sender": "Product Agent", "content": response, "icon": "🔧"})
-                add_thinking_step("✅ Product Agent responded")
-            
-            elif agent_type == "MANUFACTURING":
-                if agents.get('manufacturing'):
-                    response = get_manufacturing_response(agent_prompt, agents['manufacturing'], clients.get('manufacturing', clients['openai']))
-                else:
-                    response = f"From a manufacturing standpoint: {user_input}\n\nI can analyze production processes, operations, and supply chain considerations."
-                agent_responses.append({"sender": "Manufacturing Agent", "content": response, "icon": "🏭"})
-                add_thinking_step("✅ Manufacturing Agent responded")
-            
-            elif agent_type == "FINANCE":
-                if agents.get('finance'):
-                    response = get_finance_response(agent_prompt, agents['finance'], clients.get('finance', clients['openai']))
-                else:
-                    response = f"Looking at the financial aspects: {user_input}\n\nI can provide analysis on costs, budgets, and financial impacts."
-                agent_responses.append({"sender": "Finance Agent", "content": response, "icon": "💰"})
-                add_thinking_step("✅ Finance Agent responded")
-            
-            elif agent_type == "ANALYZER":
-                if agents.get('analyzer') and clients.get('openai'):
-                    response_obj = clients['openai'].responses.create(
-                        input=[{"role": "user", "content": agent_prompt}],
-                        extra_body={"agent": {"name": agents['analyzer'].name, "type": "agent_reference"}},
-                    )
-                    response = response_obj.output_text
-                else:
-                    response = f"Analyzing your query: {user_input}\n\nI can provide comprehensive analysis and coordinate with specialist agents."
-                agent_responses.append({"sender": "Analyzer", "content": response, "icon": "📊"})
-                add_thinking_step("✅ Analyzer responded")
-        
-        # Step 3: Optional follow-up round where agents can respond to each other
-        if len(agent_responses) > 1:
-            add_thinking_step("🔄 Checking if agents want to respond to each other...")
-            # Limit to prevent infinite loops - just one follow-up round
-            follow_up_responses = []
-            
-            for agent_resp in agent_responses:
-                # Each agent can optionally add a brief follow-up
-                agent_name = agent_resp['sender']
-                other_responses = "\n".join([f"{r['sender']}: {r['content'][:150]}..." for r in agent_responses if r['sender'] != agent_name])
-                
-                follow_up_prompt = f"""Other agents have shared their perspectives:
-{other_responses}
-
-If you have a brief follow-up comment or want to build on what others said, share it (max 2 sentences). 
-If not needed, respond with 'NONE'."""
-                
-                # For simplicity, only allow follow-ups for configured agents
-                if "Product" in agent_name and agents.get('product'):
-                    try:
-                        follow_up = get_product_response(follow_up_prompt, agents['product'], clients.get('product', clients['openai']))
-                        if follow_up and "NONE" not in follow_up.upper() and len(follow_up.strip()) > 10:
-                            follow_up_responses.append({"sender": agent_name, "content": follow_up, "icon": agent_resp['icon'], "is_followup": True})
-                    except:
-                        pass
-            
-            if follow_up_responses:
-                add_thinking_step(f"💬 {len(follow_up_responses)} follow-up comments added")
-                agent_responses.extend(follow_up_responses)
-        
-        thinking_process = "\n\n".join(thinking_steps)
-        return thinking_process, agent_responses
-        
+            add_thinking_step("⚠️ Product Agent not fully configured, using demo mode")
+            return {
+                'thinking': "\n\n".join(thinking_steps),
+                'main_response': f"Product Agent (Demo): Thank you for your query about '{user_input}'. I can help you with product information, specifications, and coordinate with our manufacturing and finance teams as needed.",
+                'specialist_responses': []
+            }
     except Exception as e:
         add_thinking_step(f"❌ Error: {str(e)}")
-        thinking_process = "\n\n".join(thinking_steps)
-        return thinking_process, [{"sender": "System", "content": f"Error: {str(e)}", "icon": "⚠️"}]
+        return {
+            'thinking': "\n\n".join(thinking_steps),
+            'main_response': f"I apologize, but I encountered an error: {str(e)}",
+            'specialist_responses': []
+        }
 
-# Initialize session state for chat messages with new structure
+# Initialize session state for chat messages
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "Analyzer",
-        "content": "Welcome to the multi-agent chat! I can coordinate with Product, Manufacturing, and Finance agents to help answer your questions.",
+        "sender": "Product Agent",
+        "content": "Hello! I'm your Product Agent. I can help you with product information, specifications, features, and more. I can also coordinate with our Manufacturing and Finance teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
-        "icon": "📊"
+        "icon": "🤖"
     }]
 
 # Reset chat history button
-if st.sidebar.button("Reset chat history"):
+if st.sidebar.button("🔄 Reset Chat"):
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "Analyzer",
-        "content": "Welcome to the multi-agent chat! I can coordinate with Product, Manufacturing, and Finance agents to help answer your questions.",
+        "sender": "Product Agent",
+        "content": "Hello! I'm your Product Agent. I can help you with product information, specifications, features, and more. I can also coordinate with our Manufacturing and Finance teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
-        "icon": "📊"
+        "icon": "🤖"
     }]
     st.rerun()
 
@@ -539,14 +369,14 @@ if st.sidebar.button("Generate Proposal PDF", type="primary"):
         st.sidebar.warning("Start a conversation first before generating a proposal!")
     else:
         with st.sidebar:
-            with st.spinner("Analyzer is creating your proposal..."):
+            with st.spinner("Product Agent is creating your proposal..."):
                 proposal_text, error = generate_proposal_summary()
                 
                 if error:
                     st.error(error)
                 elif proposal_text:
                     # Generate PDF
-                    pdf_buffer = generate_pdf(proposal_text)
+                    pdf_buffer = get_pdf_buffer(proposal_text)
                     
                     # Offer download
                     st.success("✅ Proposal generated successfully!")
@@ -562,7 +392,7 @@ if st.sidebar.button("Generate Proposal PDF", type="primary"):
                     with st.expander("Preview Proposal Content"):
                         st.markdown(proposal_text)
 
-# Display chat messages in group chat style
+# Display chat messages
 for msg in st.session_state.messages:
     sender = msg.get("sender", "Unknown")
     icon = msg.get("icon", "💬")
@@ -578,8 +408,6 @@ for msg in st.session_state.messages:
         css_class = "manufacturing-message"
     elif "Finance" in sender:
         css_class = "finance-message"
-    elif "Analyzer" in sender:
-        css_class = "analyzer-message"
     else:
         css_class = "chat-message"
     
@@ -596,17 +424,30 @@ for msg in st.session_state.messages:
     
     # Show thinking process for agent messages if available
     if msg["role"] == "agent" and "thinking" in msg:
-        with st.expander("🧠 Thinking Process", expanded=False):
+        with st.expander("🧠 Agent Coordination Process", expanded=False):
             st.markdown(msg["thinking"])
+    
+    # Show specialist responses if available
+    if msg.get("specialist_responses"):
+        for specialist in msg["specialist_responses"]:
+            st.markdown(f"""
+            <div class="chat-message {specialist.get('css_class', 'chat-message')}">
+                <div class="sender-name">
+                    <span>{specialist['icon']} <strong>{specialist['agent']}</strong></span>
+                    <span class="specialist-badge">Specialist Input</span>
+                </div>
+                <div class="message-content">{specialist['response']}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-# Receive user input and generate multi-agent conversation
-if prompt := st.chat_input(placeholder="Ask me anything..."):
+# Receive user input and generate response
+if prompt := st.chat_input(placeholder="Ask me anything about products..."):
     current_time = datetime.now().strftime("%I:%M %p")
     
-    # Add user message with new structure
+    # Add user message
     user_message = {
         "role": "user",
-        "sender": "User",
+        "sender": "Customer",
         "content": prompt,
         "timestamp": current_time,
         "icon": "👤"
@@ -617,43 +458,33 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
     st.markdown(f"""
     <div class="chat-message user-message">
         <div class="sender-name">
-            <span>👤 <strong>User</strong></span>
+            <span>👤 <strong>Customer</strong></span>
             <span class="timestamp">{current_time}</span>
         </div>
         <div class="message-content">{prompt}</div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Create a status container for real-time thinking process
-    with st.status("🤔 Coordinating agents...", expanded=True) as status:
+    # Get response from Product Agent
+    with st.status("🤖 Product Agent is working on your request...", expanded=True) as status:
         thinking_container = st.empty()
         
-        # Create placeholders for each agent response (real-time display)
-        agent_placeholders = {}
-        for agent_name in ["Product Agent", "Manufacturing Agent", "Finance Agent"]:
-            agent_placeholders[agent_name] = st.empty()
+        # Handle the customer query
+        result = handle_customer_query(prompt, thinking_container)
         
-        # Generate multi-agent conversation with real-time updates
-        thinking_process, agent_responses = get_multi_agent_conversation(
-            prompt, 
-            thinking_container, 
-            st.session_state.messages,
-            agent_placeholders  # Pass placeholders for real-time updates
-        )
-        
-        status.update(label="✅ Agents have responded!", state="complete", expanded=False)
+        status.update(label="✅ Response ready!", state="complete", expanded=False)
     
-    # Add each agent's response to message history
+    # Add Product Agent's response to message history
     response_time = datetime.now().strftime("%I:%M %p")
-    for agent_resp in agent_responses:
-        agent_message = {
-            "role": "agent",
-            "sender": agent_resp["sender"],
-            "content": agent_resp["content"],
-            "timestamp": response_time,
-            "icon": agent_resp.get("icon", "🤖"),
-            "thinking": thinking_process if agent_resp == agent_responses[0] else None  # Only attach thinking to first response
-        }
-        st.session_state.messages.append(agent_message)
+    agent_message = {
+        "role": "agent",
+        "sender": "Product Agent",
+        "content": result['main_response'],
+        "timestamp": response_time,
+        "icon": "🤖",
+        "thinking": result['thinking'],
+        "specialist_responses": result.get('specialist_responses', [])
+    }
+    st.session_state.messages.append(agent_message)
     
     st.rerun()
