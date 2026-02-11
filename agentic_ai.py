@@ -178,10 +178,10 @@ with st.sidebar:
                 error_msg = init_errors.get(agent_name, "Not configured")
                 st.warning(f"⚠️ {agent_name.capitalize()}: {error_msg}")
 
-def generate_proposal_summary():
-    """Generate a comprehensive proposal summary from the conversation history"""
+def generate_quotation():
+    """Generate a product quotation after all agents collaborate to finalize the offer"""
     if len(st.session_state.messages) <= 1:
-        return None, "No conversation to summarize yet. Start chatting with the Product Agent first!"
+        return None, "No conversation to generate quotation from. Start chatting with the Product Agent first!"
     
     # Build conversation context
     conversation_text = ""
@@ -190,38 +190,38 @@ def generate_proposal_summary():
         content = msg.get("content", "")
         conversation_text += f"{sender}: {content}\n\n"
     
-    # Create prompt for product agent to generate proposal
-    proposal_prompt = f"""Based on the following conversation with the customer, create a comprehensive draft proposal document.
+    # Create prompt for product agent to generate quotation after collaboration
+    quotation_prompt = f"""Based on the collaboration between Product, Manufacturing, and Finance agents in the conversation below, create a formal product quotation for the customer.
 
-The proposal should include:
-1. Executive Summary
-2. Customer Requirements and Discussion Points
-3. Product Recommendations
-4. Manufacturing Considerations (if applicable)
-5. Financial Overview (if applicable)
-6. Recommendations and Next Steps
-7. Conclusion
+The quotation should include:
+1. Quotation Summary
+2. Customer Requirements
+3. Product Specifications & Offerings
+4. Manufacturing Details (production timeline, capacity, delivery)
+5. Pricing & Financial Terms
+6. Terms & Conditions
+7. Validity Period
 
 Conversation History:
 {conversation_text}
 
-Generate a well-structured, professional proposal document."""
+Generate a comprehensive, professional product quotation document that consolidates inputs from all three agents."""
     
     try:
         if agents.get('product') and clients.get('product'):
             response = clients['product'].responses.create(
-                input=[{"role": "user", "content": proposal_prompt}],
+                input=[{"role": "user", "content": quotation_prompt}],
                 extra_body={"agent": {"name": agents['product'].name, "type": "agent_reference"}},
             )
-            proposal_text = response.output_text
-            return proposal_text, None
+            quotation_text = response.output_text
+            return quotation_text, None
         else:
-            return None, "Product agent is not available to generate proposal."
+            return None, "Product agent is not available to generate quotation."
     except Exception as e:
-        return None, f"Error generating proposal: {str(e)}"
+        return None, f"Error generating quotation: {str(e)}"
 
-def get_pdf_buffer(proposal_text):
-    """Generate a PDF document from the proposal text"""
+def get_pdf_buffer(quotation_text):
+    """Generate a PDF document from the quotation text"""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter,
                           rightMargin=72, leftMargin=72,
@@ -245,7 +245,7 @@ def get_pdf_buffer(proposal_text):
     )
     
     # Add title
-    title = Paragraph("Customer Proposal - Product Agent", title_style)
+    title = Paragraph("Product Quotation", title_style)
     elements.append(title)
     elements.append(Spacer(1, 12))
     
@@ -254,15 +254,15 @@ def get_pdf_buffer(proposal_text):
     elements.append(Paragraph(date_text, styles['Normal']))
     elements.append(Spacer(1, 12))
     
-    # Process the proposal text
-    paragraphs = proposal_text.split('\n\n')
+    # Process the quotation text
+    paragraphs = quotation_text.split('\n\n')
     
     for para in paragraphs:
         if para.strip():
             # Check if it's a heading
-            if any(keyword in para for keyword in ['Executive Summary', 'Customer Requirements', 
-                                                    'Product Recommendations', 'Manufacturing',
-                                                    'Financial', 'Recommendations', 'Conclusion', 'Next Steps']):
+            if any(keyword in para for keyword in ['Quotation Summary', 'Customer Requirements', 
+                                                    'Product Specifications', 'Manufacturing Details',
+                                                    'Pricing', 'Financial Terms', 'Terms & Conditions', 'Validity']):
                 elements.append(Spacer(1, 12))
                 elements.append(Paragraph(para.strip(), styles['Heading2']))
                 elements.append(Spacer(1, 6))
@@ -359,38 +359,38 @@ if st.sidebar.button("🔄 Reset Chat"):
     }]
     st.rerun()
 
-# Proposal generation section
+# Quotation generation section
 st.sidebar.markdown("---")
-st.sidebar.subheader("📄 Generate Proposal")
-st.sidebar.write("Create a comprehensive proposal document from the conversation.")
+st.sidebar.subheader("💰 Generate Quotation")
+st.sidebar.write("Generate a product quotation based on collaboration between Product, Manufacturing, and Finance agents.")
 
-if st.sidebar.button("Generate Proposal PDF", type="primary"):
+if st.sidebar.button("Generate Quotation PDF", type="primary"):
     if len(st.session_state.messages) <= 1:
-        st.sidebar.warning("Start a conversation first before generating a proposal!")
+        st.sidebar.warning("Start a conversation first before generating a quotation!")
     else:
         with st.sidebar:
-            with st.spinner("Product Agent is creating your proposal..."):
-                proposal_text, error = generate_proposal_summary()
+            with st.spinner("Agents are finalizing your quotation..."):
+                quotation_text, error = generate_quotation()
                 
                 if error:
                     st.error(error)
-                elif proposal_text:
+                elif quotation_text:
                     # Generate PDF
-                    pdf_buffer = get_pdf_buffer(proposal_text)
+                    pdf_buffer = get_pdf_buffer(quotation_text)
                     
                     # Offer download
-                    st.success("✅ Proposal generated successfully!")
+                    st.success("✅ Quotation generated successfully!")
                     st.download_button(
-                        label="📥 Download Proposal PDF",
+                        label="📥 Download Quotation PDF",
                         data=pdf_buffer,
-                        file_name=f"proposal_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        file_name=f"quotation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                         mime="application/pdf",
                         type="primary"
                     )
                     
                     # Show preview
-                    with st.expander("Preview Proposal Content"):
-                        st.markdown(proposal_text)
+                    with st.expander("Preview Quotation"):
+                        st.markdown(quotation_text)
 
 # Display chat messages
 for msg in st.session_state.messages:
