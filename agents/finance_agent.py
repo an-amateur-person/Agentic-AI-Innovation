@@ -41,7 +41,7 @@ def initialize_finance_agent():
 def get_finance_response(user_input, agent, openai_client):
     """Get response from finance agent"""
     if not agent:
-        return f"Finance Agent: Analyzing financial query - '{user_input}'"
+        return f"InsuranceBuddy: Analyzing financial query - '{user_input}'"
     
     try:
         response = openai_client.responses.create(
@@ -50,8 +50,8 @@ def get_finance_response(user_input, agent, openai_client):
         )
         return response.output_text
     except Exception as e:
-        return f"Finance Agent Error: {str(e)}"
+        return f"InsuranceBuddy Error: {str(e)}"
 
 if __name__ == "__main__":
     agent, client = initialize_finance_agent()
-    print("Finance Agent initialized successfully")
+    print("InsuranceBuddy initialized successfully")

@@ -1,12 +1,10 @@
 # Product Agent
-# Primary agent that handles all customer interactions
-# Can coordinate with Manufacturing and Finance agents when needed
+# Handles product and operations queries
 
 from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from azure.ai.projects import AIProjectClient
 import os
 from dotenv import load_dotenv
-import json
 
 # Load environment variables
 load_dotenv("../.env")
@@ -38,114 +36,22 @@ def initialize_product_agent():
         agent = None
     
     openai_client = project_client.get_openai_client()
-    return agent, openai_client, project_client
+    return agent, openai_client
 
-def analyze_query_needs(user_input):
-    """
-    Analyze the user query to determine if specialized agents are needed
-    Returns: dict with agents needed and reasoning
-    """
-    user_input_lower = user_input.lower()
-    
-    needs_manufacturing = any(kw in user_input_lower for kw in [
-        'manufacturing', 'production', 'assembly', 'inventory', 'supply',
-        'operations', 'factory', 'capacity', 'process', 'equipment', 'workflow'
-    ])
-    
-    needs_finance = any(kw in user_input_lower for kw in [
-        'cost', 'price', 'budget', 'finance', 'revenue', 'profit',
-        'expense', 'investment', 'roi', 'financial', 'accounting', 'payment'
-    ])
-    
-    return {
-        "needs_manufacturing": needs_manufacturing,
-        "needs_finance": needs_finance,
-        "agents_needed": [
-            "manufacturing" if needs_manufacturing else None,
-            "finance" if needs_finance else None
-        ]
-    }
-
-def get_product_response(user_input, agent, openai_client, conversation_history=None):
-    """
-    Get response from product agent
-    Product agent now handles all customer queries directly
-    """
+def get_product_response(user_input, agent, openai_client):
+    """Get response from product agent"""
     if not agent:
-        return f"Product Agent: I'm here to help with your inquiry about: '{user_input}'"
+        return f"FridgeBuddy: Processing operations query - '{user_input}'"
     
     try:
-        # Build conversation context if available
-        messages = []
-        if conversation_history:
-            for msg in conversation_history[-5:]:  # Last 5 messages for context
-                role = "user" if msg.get("role") == "user" else "assistant"
-                messages.append({"role": role, "content": msg.get("content", "")})
-        
-        # Add current user input
-        messages.append({"role": "user", "content": user_input})
-        
         response = openai_client.responses.create(
-            input=messages,
+            input=[{"role": "user", "content": user_input}],
             extra_body={"agent": {"name": agent.name, "type": "agent_reference"}},
         )
         return response.output_text
     except Exception as e:
-        return f"Product Agent Error: {str(e)}"
-
-def get_coordinated_response(user_input, product_agent, openai_client, 
-                            manufacturing_agent=None, finance_agent=None,
-                            conversation_history=None):
-    """
-    Product Agent coordinates with other agents when needed
-    Returns: dict with main_response and specialist_responses
-    """
-    # Analyze what's needed
-    analysis = analyze_query_needs(user_input)
-    
-    # Get primary response from Product Agent
-    main_response = get_product_response(user_input, product_agent, openai_client, conversation_history)
-    
-    result = {
-        "main_response": main_response,
-        "specialist_responses": []
-    }
-    
-    # Get specialist input if needed
-    if analysis["needs_manufacturing"] and manufacturing_agent:
-        try:
-            from manufacturing_agent import get_manufacturing_response
-            mfg_response = get_manufacturing_response(
-                f"Regarding: {user_input}\n\nProduct Agent says: {main_response[:200]}...\n\nProvide manufacturing insights:",
-                manufacturing_agent[0], 
-                manufacturing_agent[1]
-            )
-            result["specialist_responses"].append({
-                "agent": "Manufacturing Agent",
-                "response": mfg_response,
-                "icon": "🏭"
-            })
-        except Exception as e:
-            pass
-    
-    if analysis["needs_finance"] and finance_agent:
-        try:
-            from finance_agent import get_finance_response
-            finance_response = get_finance_response(
-                f"Regarding: {user_input}\n\nProduct Agent says: {main_response[:200]}...\n\nProvide financial insights:",
-                finance_agent[0],
-                finance_agent[1]
-            )
-            result["specialist_responses"].append({
-                "agent": "Finance Agent",
-                "response": finance_response,
-                "icon": "💰"
-            })
-        except Exception as e:
-            pass
-    
-    return result
+        return f"FridgeBuddy Error: {str(e)}"
 
 if __name__ == "__main__":
-    agent, client, project = initialize_product_agent()
-    print("Product Agent initialized successfully")
+    agent, client = initialize_product_agent()
+    print("FridgeBuddy initialized successfully")

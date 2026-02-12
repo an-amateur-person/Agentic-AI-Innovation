@@ -1,16 +1,16 @@
-# Agentic AI Innovation - Product Agent System
+# Agentic AI Innovation - Retail Agent System
 
-An intelligent Streamlit application where customers interact directly with a Product Agent that coordinates with specialized teams (Manufacturing and Finance) when needed.
+An intelligent Streamlit application where customers interact directly with a Retail Agent that coordinates with specialized teams (Product and Finance) when needed.
 
 ## 🤖 Agent Architecture
 
-### Product Agent (Primary Interface) 🤖
+### Retail Agent (Primary Interface) 🤖
 - **Role**: Main customer-facing agent
 - **Function**: 
   - Directly handles all customer interactions
   - Analyzes customer queries to understand their needs
   - Coordinates with specialist agents when expertise is needed
-  - Provides comprehensive responses combining product knowledge with specialist input
+  - Provides comprehensive responses combining retail knowledge with specialist input
   - Maintains conversation context and history
 - **Display**: Shows coordination process and specialist consultations
 - **Advantages**: 
@@ -21,9 +21,9 @@ An intelligent Streamlit application where customers interact directly with a Pr
 
 ### Specialist Agents (Support Teams)
 
-1. **Manufacturing Agent** 🏭
+1. **Product Agent** 🏭
    - Consulted for: production, assembly, inventory, supply chain, factory processes, capacity
-   - Provides specialist input when manufacturing topics are mentioned
+   - Provides specialist input when product topics are mentioned
 
 2. **Finance Agent** 💰
    - Consulted for: costs, pricing, budget, revenue, profit, expenses, investments, ROI
@@ -31,8 +31,8 @@ An intelligent Streamlit application where customers interact directly with a Pr
 
 ## 🚀 Features
 
-- ✅ **Direct Customer Interaction** - Customers chat directly with Product Agent
-- ✅ **Smart Coordination** - Product Agent automatically consults specialists when needed
+- ✅ **Direct Customer Interaction** - Customers chat directly with Retail Agent
+- ✅ **Smart Coordination** - Retail Agent automatically consults specialists when needed
 - ✅ **Context-Aware** - Maintains conversation history for better responses
 - ✅ **Transparent Process** - See when and why specialists are consulted
 - ✅ **Proposal Generation** - Create PDF proposals from conversations
@@ -83,8 +83,8 @@ An intelligent Streamlit application where customers interact directly with a Pr
    - `AZURE_SUBSCRIPTION_ID` - Your Azure subscription ID
    - `AZURE_AIPROJECT_ENDPOINT` - Your Azure AI project endpoint
    - `AZURE_LOCATION` - Azure region (e.g., swedencentral)
-   - `AGENT_PRODUCT` - Product Agent name (primary)
-   - `AGENT_MANUFACTURING` - Manufacturing Agent name (specialist)
+   - `AGENT_RETAIL` - Retail Agent name (primary)
+   - `AGENT_PRODUCT` - Product Agent name (specialist)
    - `AGENT_FINANCE` - Finance Agent name (specialist)
 
 ## 🏃 Running the Application
@@ -112,14 +112,14 @@ The application uses `InteractiveBrowserCredential` for Azure authentication:
 
 ```
 Agentic-AI-Innovation/
-├── agentic_ai.py                 # Main Streamlit application with Product Agent interface
+├── agentic_ai.py                 # Main Streamlit application with Retail Agent interface
 ├── requirements.txt              # Python dependencies
 ├── .env                          # Environment configuration (not in git)
 ├── .env.example                  # Environment template
 ├── .gitignore                    # Git ignore rules
 ├── agents/
-│   ├── product_agent.py          # Product Agent (primary customer interface)
-│   ├── manufacturing_agent.py    # Manufacturing specialist (support)
+│   ├── retail_agent.py           # Retail Agent (primary customer interface)
+│   ├── product_agent.py          # Product specialist (support)
 │   ├── finance_agent.py          # Finance specialist (support)
 │   └── orchestrator.py           # DEPRECATED - no longer used
 └── .venv/                        # Virtual environment
@@ -127,66 +127,66 @@ Agentic-AI-Innovation/
 
 **Note:** 
 - `.env` contains your actual credentials and is excluded from git
-- `orchestrator.py` is deprecated - Product Agent now handles coordination
+- `orchestrator.py` is deprecated - Retail Agent now handles coordination
 - All hardcoded values have been removed - everything uses environment variables
 
 ## 💡 Usage Examples
 
-**Product Inquiry:**
+**Retail Inquiry:**
 ```
 "Tell me about the features of your latest product"
 ```
-→ Product Agent responds directly
+→ Retail Agent responds directly
 
-**Manufacturing Question:**
+**Product Question:**
 ```
 "What's the production timeline and capacity for bulk orders?"
 ```
-→ Product Agent consults Manufacturing specialist and provides comprehensive answer
+→ Retail Agent consults Product specialist and provides comprehensive answer
 
 **Financial Inquiry:**
 ```
 "What's the pricing for enterprise licensing?"
 ```
-→ Product Agent consults Finance specialist and provides detailed pricing
+→ Retail Agent consults Finance specialist and provides detailed pricing
 
 **Combined Query:**
 ```
 "Can you produce 10,000 units and what would the cost be?"
 ```
-→ Product Agent consults both Manufacturing and Finance specialists
+→ Retail Agent consults both Product and Finance specialists
 
 ## 🛠️ How It Works
 
 ### Query Flow
 
-1. **Customer asks a question** → Product Agent receives it
-2. **Analysis** → Product Agent analyzes if specialist input is needed
-3. **Coordination** → Consults Manufacturing/Finance agents if relevant topics detected
-4. **Response** → Product Agent synthesizes all information into comprehensive answer
+1. **Customer asks a question** → Retail Agent receives it
+2. **Analysis** → Retail Agent analyzes if specialist input is needed
+3. **Coordination** → Consults Product/Finance agents if relevant topics detected
+4. **Response** → Retail Agent synthesizes all information into comprehensive answer
 
 ### Specialist Detection
 
-Product Agent automatically detects when to consult specialists based on keywords:
-- **Manufacturing**: production, inventory, supply, operations, capacity, assembly
+Retail Agent automatically detects when to consult specialists based on keywords:
+- **Product**: production, inventory, supply, operations, capacity, assembly
 - **Finance**: cost, price, budget, revenue, expense, investment, ROI
 
 ## 📊 Agent Status
 
 The sidebar displays real-time status of all agents:
-- ✅ Green: Agent initialized successfully (Product Agent is required)
+- ✅ Green: Agent initialized successfully (Retail Agent is required)
 - ⚠️ Yellow: Specialist not configured (system still works, limited capabilities)
 - ❌ Red: Initialization error
 
 **Agent Roles:**
-- **Product Agent (Primary)** - Must be configured for system to work
-- **Manufacturing & Finance (Specialists)** - Optional, consulted when needed
+- **Retail Agent (Primary)** - Must be configured for system to work
+- **Product & Finance (Specialists)** - Optional, consulted when needed
 
 ## 🎯 Key Changes from Previous Version
 
 - ❌ **Removed**: Analysis Agent / Orchestrator - no longer needed
-- ✅ **Simplified**: Direct customer → Product Agent interaction
-- ✅ **Enhanced**: Product Agent now coordinates with specialists automatically
+- ✅ **Simplified**: Direct customer → Retail Agent interaction
+- ✅ **Enhanced**: Retail Agent now coordinates with specialists automatically
 - ✅ **Improved**: Single conversation thread, better context retention
 - ✅ **Streamlined**: Reduced complexity, faster responses
 
@@ -224,8 +224,8 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 - Fill in all required values
 - Never commit `.env` to git (it's in .gitignore)
 
-**Product Agent not responding:**
-- Verify `AGENT_PRODUCT` is correctly set in `.env`
+**Retail Agent not responding:**
+- Verify `AGENT_RETAIL` is correctly set in `.env`
 - Check that the agent exists in your Azure AI project
 - Specialist agents are optional - system works without them but with reduced capabilities
 

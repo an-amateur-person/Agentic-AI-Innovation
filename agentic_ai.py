@@ -16,22 +16,22 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 # Add agents directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'agents'))
 
-from product_agent import (
-    initialize_product_agent, 
-    get_product_response, 
+from retail_agent import (
+    initialize_retail_agent, 
+    get_retail_response, 
     get_coordinated_response,
     analyze_query_needs
 )
-from manufacturing_agent import initialize_manufacturing_agent, get_manufacturing_response
+from product_agent import initialize_product_agent, get_product_response
 from finance_agent import initialize_finance_agent, get_finance_response
 
 # Load environment variables from .env file
 load_dotenv(".env")
 
 # Webpage configurations
-st.set_page_config(page_title="Product Agent Interface", page_icon="🤖")
-st.title("🤖 Product Agent - Customer Service")
-st.write("Welcome! I'm your Product Agent. Ask me anything about products, and I'll coordinate with specialized teams when needed.")
+st.set_page_config(page_title="Agentic AI System Interface", page_icon="🤖")
+st.title("🤖 BuyBuddy - Customer Service")
+st.write("Welcome! I'm your BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
 
 # Define custom CSS for styling
 custom_css = """
@@ -63,11 +63,11 @@ custom_css = """
     border-left-color: #2196F3;
 }
 
-.product-message {
+.retail-message {
     border-left-color: #4CAF50;
 }
 
-.manufacturing-message {
+.product-message {
     border-left-color: #FF9800;
 }
 
@@ -115,30 +115,30 @@ st.markdown('<div class="bot-icon">🤖</div>', unsafe_allow_html=True)
 # Initialize all agents
 @st.cache_resource
 def initialize_all_agents():
-    """Initialize product agent and specialized agents"""
+    """Initialize retail agent and specialized agents"""
     agents = {}
     clients = {}
     errors = {}
     
     try:
-        # Initialize Product Agent (primary)
+        # Initialize Retail Agent (primary)
         try:
-            product_agent, product_client, project_client = initialize_product_agent()
-            agents['product'] = product_agent
-            clients['product'] = product_client
+            retail_agent, retail_client, project_client = initialize_retail_agent()
+            agents['retail'] = retail_agent
+            clients['retail'] = retail_client
             clients['project'] = project_client
+        except Exception as e:
+            agents['retail'] = None
+            errors['retail'] = str(e)
+        
+        # Initialize Product Agent (specialist)
+        try:
+            mfg_agent, mfg_client = initialize_product_agent()
+            agents['product'] = mfg_agent
+            clients['product'] = mfg_client
         except Exception as e:
             agents['product'] = None
             errors['product'] = str(e)
-        
-        # Initialize Manufacturing Agent (specialist)
-        try:
-            mfg_agent, mfg_client = initialize_manufacturing_agent()
-            agents['manufacturing'] = mfg_agent
-            clients['manufacturing'] = mfg_client
-        except Exception as e:
-            agents['manufacturing'] = None
-            errors['manufacturing'] = str(e)
         
         # Initialize Finance Agent (specialist)
         try:
@@ -162,26 +162,28 @@ with st.sidebar:
     if 'main' in init_errors:
         st.error(f"❌ Initialization failed: {init_errors['main']}")
     else:
-        # Product Agent status
-        if agents.get('product'):
-            st.success("✅ Product Agent (Primary)")
+        # Retail Agent status
+        if agents.get('retail'):
+            st.success("✅ BuyBuddy (Primary)")
         else:
-            error_msg = init_errors.get('product', "Not configured")
-            st.error(f"❌ Product Agent: {error_msg}")
+            error_msg = init_errors.get('retail', "Not configured")
+            st.error(f"❌ BuyBuddy: {error_msg}")
         
         st.markdown("**Specialist Agents:**")
         # Specialist agents
-        for agent_name in ['manufacturing', 'finance']:
+        for agent_name in ['product', 'finance']:
             if agent_name in agents and agents[agent_name]:
-                st.success(f"✅ {agent_name.capitalize()}")
+                display_name = "FridgeBuddy" if agent_name == 'product' else "InsuranceBuddy"
+                st.success(f"✅ {display_name}")
             else:
                 error_msg = init_errors.get(agent_name, "Not configured")
-                st.warning(f"⚠️ {agent_name.capitalize()}: {error_msg}")
+                display_name = "FridgeBuddy" if agent_name == 'product' else "InsuranceBuddy"
+                st.warning(f"⚠️ {display_name}: {error_msg}")
 
 def generate_quotation():
     """Generate a product quotation after all agents collaborate to finalize the offer"""
     if len(st.session_state.messages) <= 1:
-        return None, "No conversation to generate quotation from. Start chatting with the Product Agent first!"
+        return None, "No conversation to generate quotation from. Start chatting with BuyBuddy first!"
     
     # Build conversation context
     conversation_text = ""
@@ -190,14 +192,14 @@ def generate_quotation():
         content = msg.get("content", "")
         conversation_text += f"{sender}: {content}\n\n"
     
-    # Create prompt for product agent to generate quotation after collaboration
-    quotation_prompt = f"""Based on the collaboration between Product, Manufacturing, and Finance agents in the conversation below, create a formal product quotation for the customer.
+    # Create prompt for retail agent to generate quotation after collaboration
+    quotation_prompt = f"""Based on the collaboration between BuyBuddy, FridgeBuddy, and InsuranceBuddy agents in the conversation below, create a formal product quotation for the customer.
 
 The quotation should include:
 1. Quotation Summary
 2. Customer Requirements
 3. Product Specifications & Offerings
-4. Manufacturing Details (production timeline, capacity, delivery)
+4. Product Details (production timeline, capacity, delivery)
 5. Pricing & Financial Terms
 6. Terms & Conditions
 7. Validity Period
@@ -208,15 +210,15 @@ Conversation History:
 Generate a comprehensive, professional product quotation document that consolidates inputs from all three agents."""
     
     try:
-        if agents.get('product') and clients.get('product'):
-            response = clients['product'].responses.create(
+        if agents.get('retail') and clients.get('retail'):
+            response = clients['retail'].responses.create(
                 input=[{"role": "user", "content": quotation_prompt}],
-                extra_body={"agent": {"name": agents['product'].name, "type": "agent_reference"}},
+                extra_body={"agent": {"name": agents['retail'].name, "type": "agent_reference"}},
             )
             quotation_text = response.output_text
             return quotation_text, None
         else:
-            return None, "Product agent is not available to generate quotation."
+            return None, "BuyBuddy is not available to generate quotation."
     except Exception as e:
         return None, f"Error generating quotation: {str(e)}"
 
@@ -261,7 +263,7 @@ def get_pdf_buffer(quotation_text):
         if para.strip():
             # Check if it's a heading
             if any(keyword in para for keyword in ['Quotation Summary', 'Customer Requirements', 
-                                                    'Product Specifications', 'Manufacturing Details',
+                                                    'Product Specifications', 'Product Details',
                                                     'Pricing', 'Financial Terms', 'Terms & Conditions', 'Validity']):
                 elements.append(Spacer(1, 12))
                 elements.append(Paragraph(para.strip(), styles['Heading2']))
@@ -278,8 +280,8 @@ def get_pdf_buffer(quotation_text):
 
 def handle_customer_query(user_input, thinking_container):
     """
-    Handle customer query through Product Agent
-    Product Agent coordinates with specialists when needed
+    Handle customer query through BuyBuddy
+    BuyBuddy coordinates with specialists when needed
     """
     thinking_steps = []
     
@@ -288,7 +290,7 @@ def handle_customer_query(user_input, thinking_container):
         with thinking_container:
             st.markdown("\n\n".join(thinking_steps))
     
-    add_thinking_step("🤖 Product Agent is analyzing your query...")
+    add_thinking_step("🤖 BuyBuddy is analyzing your query...")
     
     # Analyze what specialists might be needed
     analysis = analyze_query_needs(user_input)
@@ -296,22 +298,22 @@ def handle_customer_query(user_input, thinking_container):
     if analysis['needs_manufacturing'] or analysis['needs_finance']:
         specialist_list = []
         if analysis['needs_manufacturing']:
-            specialist_list.append("Manufacturing")
+            specialist_list.append("FridgeBuddy")
         if analysis['needs_finance']:
-            specialist_list.append("Finance")
+            specialist_list.append("InsuranceBuddy")
         add_thinking_step(f"🔍 Will consult with: {', '.join(specialist_list)} specialist(s)")
     
     # Get coordinated response
     add_thinking_step("💬 Preparing comprehensive response...")
     
     try:
-        if agents.get('product'):
+        if agents.get('retail'):
             # Get coordinated response
             result = get_coordinated_response(
                 user_input,
-                agents['product'],
-                clients['product'],
-                (agents.get('manufacturing'), clients.get('manufacturing')) if analysis['needs_manufacturing'] else None,
+                agents['retail'],
+                clients['retail'],
+                (agents.get('product'), clients.get('product')) if analysis['needs_manufacturing'] else None,
                 (agents.get('finance'), clients.get('finance')) if analysis['needs_finance'] else None,
                 st.session_state.messages
             )
@@ -324,10 +326,10 @@ def handle_customer_query(user_input, thinking_container):
                 'specialist_responses': result['specialist_responses']
             }
         else:
-            add_thinking_step("⚠️ Product Agent not fully configured, using demo mode")
+            add_thinking_step("⚠️ BuyBuddy not fully configured, using demo mode")
             return {
                 'thinking': "\n\n".join(thinking_steps),
-                'main_response': f"Product Agent (Demo): Thank you for your query about '{user_input}'. I can help you with product information, specifications, and coordinate with our manufacturing and finance teams as needed.",
+                'main_response': f"BuyBuddy (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with our product and finance teams as needed.",
                 'specialist_responses': []
             }
     except Exception as e:
@@ -342,8 +344,8 @@ def handle_customer_query(user_input, thinking_container):
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "Product Agent",
-        "content": "Hello! I'm your Product Agent. I can help you with product information, specifications, features, and more. I can also coordinate with our Manufacturing and Finance teams when needed. How can I assist you today?",
+        "sender": "BuyBuddy",
+        "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": "🤖"
     }]
@@ -352,8 +354,8 @@ if "messages" not in st.session_state:
 if st.sidebar.button("🔄 Reset Chat"):
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "Product Agent",
-        "content": "Hello! I'm your Product Agent. I can help you with product information, specifications, features, and more. I can also coordinate with our Manufacturing and Finance teams when needed. How can I assist you today?",
+        "sender": "BuyBuddy",
+        "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": "🤖"
     }]
@@ -362,7 +364,7 @@ if st.sidebar.button("🔄 Reset Chat"):
 # Quotation generation section
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Generate Quotation")
-st.sidebar.write("Generate a product quotation based on collaboration between Product, Manufacturing, and Finance agents.")
+st.sidebar.write("Generate a product quotation based on collaboration between BuyBuddy, FridgeBuddy, and InsuranceBuddy.")
 
 if st.sidebar.button("Generate Quotation PDF", type="primary"):
     if len(st.session_state.messages) <= 1:
@@ -402,11 +404,11 @@ for msg in st.session_state.messages:
     # Determine CSS class based on sender
     if msg["role"] == "user":
         css_class = "user-message"
-    elif "Product" in sender:
+    elif "BuyBuddy" in sender:
+        css_class = "retail-message"
+    elif "FridgeBuddy" in sender:
         css_class = "product-message"
-    elif "Manufacturing" in sender:
-        css_class = "manufacturing-message"
-    elif "Finance" in sender:
+    elif "InsuranceBuddy" in sender:
         css_class = "finance-message"
     else:
         css_class = "chat-message"
@@ -441,7 +443,7 @@ for msg in st.session_state.messages:
             """, unsafe_allow_html=True)
 
 # Receive user input and generate response
-if prompt := st.chat_input(placeholder="Ask me anything about products..."):
+if prompt := st.chat_input(placeholder="Ask me anything..."):
     current_time = datetime.now().strftime("%I:%M %p")
     
     # Add user message
@@ -465,8 +467,8 @@ if prompt := st.chat_input(placeholder="Ask me anything about products..."):
     </div>
     """, unsafe_allow_html=True)
     
-    # Get response from Product Agent
-    with st.status("🤖 Product Agent is working on your request...", expanded=True) as status:
+    # Get response from BuyBuddy
+    with st.status("🤖 BuyBuddy is working on your request...", expanded=True) as status:
         thinking_container = st.empty()
         
         # Handle the customer query
@@ -474,11 +476,11 @@ if prompt := st.chat_input(placeholder="Ask me anything about products..."):
         
         status.update(label="✅ Response ready!", state="complete", expanded=False)
     
-    # Add Product Agent's response to message history
+    # Add BuyBuddy's response to message history
     response_time = datetime.now().strftime("%I:%M %p")
     agent_message = {
         "role": "agent",
-        "sender": "Product Agent",
+        "sender": "BuyBuddy",
         "content": result['main_response'],
         "timestamp": response_time,
         "icon": "🤖",
