@@ -7,9 +7,33 @@ from azure.ai.projects import AIProjectClient
 import os
 from dotenv import load_dotenv
 import json
+import base64
 
 # Load environment variables
 load_dotenv("../.env")
+
+def get_agent_icon(agent_name):
+    """Get the custom icon for an agent (PNG or fallback to emoji)"""
+    icon_mapping = {
+        'buybuddy': ('assets/buybuddy_icon.png', '🛒'),
+        'fridgebuddy': ('assets/fridgebuddy.png', '📦'),
+        'insurancebuddy': ('assets/insurancebuddy.png', '🛡️'),
+        'customer': (None, '👤')
+    }
+    
+    png_path, emoji_fallback = icon_mapping.get(agent_name.lower(), (None, '💬'))
+    
+    # If no PNG path or file doesn't exist, return emoji
+    if not png_path or not os.path.exists(png_path):
+        return emoji_fallback
+    
+    # Try to load and encode the PNG
+    try:
+        with open(png_path, 'rb') as f:
+            image_data = base64.b64encode(f.read()).decode('utf-8')
+        return f'<img src="data:image/png;base64,{image_data}" class="chat-icon-img"/>'
+    except Exception:
+        return emoji_fallback
 
 def initialize_retail_agent():
     """Initialize the retail agent"""
@@ -123,7 +147,7 @@ def get_coordinated_response(user_input, retail_agent, openai_client,
             result["specialist_responses"].append({
                 "agent": "FridgeBuddy",
                 "response": prod_response,
-                "icon": "🏭"
+                "icon": get_agent_icon('fridgebuddy')
             })
         except Exception as e:
             pass
@@ -139,7 +163,7 @@ def get_coordinated_response(user_input, retail_agent, openai_client,
             result["specialist_responses"].append({
                 "agent": "InsuranceBuddy",
                 "response": finance_response,
-                "icon": "💰"
+                "icon": get_agent_icon('insurancebuddy')
             })
         except Exception as e:
             pass

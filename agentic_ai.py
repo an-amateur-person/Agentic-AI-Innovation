@@ -28,22 +28,66 @@ from finance_agent import initialize_finance_agent, get_finance_response
 # Load environment variables from .env file
 load_dotenv(".env")
 
+# Helper function to get icon (image or emoji fallback)
+def get_agent_icon(agent_name):
+    """Get base64 encoded image for agent icon or return emoji fallback"""
+    import base64
+    icon_mapping = {
+        'buybuddy': ('buybuddy_icon.png', '🛒'),
+        'fridgebuddy': ('fridgebuddy.png', '📦'),
+        'insurancebuddy': ('insurancebuddy.png', '🛡️'),
+        'customer': (None, '👤')
+    }
+    
+    icon_file, fallback_emoji = icon_mapping.get(agent_name.lower(), (None, '💬'))
+    
+    if icon_file:
+        icon_path = os.path.join(os.path.dirname(__file__), 'assets', icon_file)
+        if os.path.exists(icon_path):
+            try:
+                with open(icon_path, 'rb') as f:
+                    img_bytes = f.read()
+                img_base64 = base64.b64encode(img_bytes).decode()
+                return f'<img src="data:image/png;base64,{img_base64}" class="chat-icon-img" alt="{agent_name}">'
+            except:
+                return fallback_emoji
+    return fallback_emoji
+
 # Webpage configurations
-st.set_page_config(page_title="Agentic AI System Interface", page_icon="🤖")
-st.title("🤖 BuyBuddy - Customer Service")
-st.write("Welcome! I'm your BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
+st.set_page_config(page_title="Agentic AI System Interface", page_icon="🛒")
 
 # Define custom CSS for styling
 custom_css = """
 <style>
-/* Bot icon styling */
-.bot-icon {
-    position: fixed;
-    top: 75px;
-    left: 500px;
-    font-size: 100px;
-    z-index: 1000;
+/* Title with icon styling */
+.title-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 1rem;
+}
+
+.title-with-icon h1 {
+    margin: 0;
+    font-size: 2.5rem;
+    font-weight: 600;
+}
+
+.title-icon {
+    width: 60px;
+    height: 60px;
     animation: float 3s ease-in-out infinite;
+}
+
+.title-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.title-icon-emoji {
+    font-size: 60px;
+    line-height: 60px;
 }
 
 @keyframes float {
@@ -57,6 +101,7 @@ custom_css = """
     margin: 8px 0;
     border-radius: 10px;
     border-left: 4px solid #ddd;
+    color: #FFFFFF;
 }
 
 .user-message {
@@ -64,15 +109,15 @@ custom_css = """
 }
 
 .retail-message {
-    border-left-color: #4CAF50;
+    border-left-color: #FF6B35;
 }
 
 .product-message {
-    border-left-color: #FF9800;
+    border-left-color: #FFC107;
 }
 
 .finance-message {
-    border-left-color: #E91E63;
+    border-left-color: #F44336;
 }
 
 .sender-name {
@@ -81,17 +126,19 @@ custom_css = """
     display: flex;
     align-items: center;
     gap: 8px;
+    color: #FFFFFF;
 }
 
 .timestamp {
     font-size: 0.75em;
-    color: #666;
+    color: #BDBDBD;
     margin-left: auto;
 }
 
 .message-content {
     margin-top: 4px;
     line-height: 1.6;
+    color: #E0E0E0;
 }
 
 .specialist-badge {
@@ -103,14 +150,42 @@ custom_css = """
     background-color: #FFF9C4;
     color: #F57F17;
 }
+
+/* Chat icon image styling */
+.chat-icon-img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-right: 4px;
+}
 </style>
 """
 
 # Apply the custom CSS
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# Add floating bot icon
-st.markdown('<div class="bot-icon">🤖</div>', unsafe_allow_html=True)
+# Display title with icon
+icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'buybuddy_icon.png')
+if os.path.exists(icon_path):
+    # Read and encode the image for display
+    import base64
+    with open(icon_path, 'rb') as f:
+        img_bytes = f.read()
+    img_base64 = base64.b64encode(img_bytes).decode()
+    icon_html = f'<div class="title-icon"><img src="data:image/png;base64,{img_base64}" alt="BuyBuddy"></div>'
+else:
+    # Fallback to emoji if image not found
+    icon_html = '<div class="title-icon title-icon-emoji">🛒</div>'
+
+st.markdown(f'''
+<div class="title-with-icon">
+    {icon_html}
+    <h1>BuyBuddy - Customer Service</h1>
+</div>
+''', unsafe_allow_html=True)
+
+st.write("Welcome! I'm your BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
 
 # Initialize all agents
 @st.cache_resource
@@ -290,7 +365,7 @@ def handle_customer_query(user_input, thinking_container):
         with thinking_container:
             st.markdown("\n\n".join(thinking_steps))
     
-    add_thinking_step("🤖 BuyBuddy is analyzing your query...")
+    add_thinking_step("🛒 BuyBuddy is analyzing your query...")
     
     # Analyze what specialists might be needed
     analysis = analyze_query_needs(user_input)
@@ -347,7 +422,7 @@ if "messages" not in st.session_state:
         "sender": "BuyBuddy",
         "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
-        "icon": "🤖"
+        "icon": get_agent_icon('buybuddy')
     }]
 
 # Reset chat history button
@@ -357,7 +432,7 @@ if st.sidebar.button("🔄 Reset Chat"):
         "sender": "BuyBuddy",
         "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
-        "icon": "🤖"
+        "icon": get_agent_icon('buybuddy')
     }]
     st.rerun()
 
@@ -452,7 +527,7 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
         "sender": "Customer",
         "content": prompt,
         "timestamp": current_time,
-        "icon": "👤"
+        "icon": get_agent_icon('customer')
     }
     st.session_state.messages.append(user_message)
     
@@ -460,7 +535,7 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
     st.markdown(f"""
     <div class="chat-message user-message">
         <div class="sender-name">
-            <span>👤 <strong>Customer</strong></span>
+            <span>{user_message['icon']} <strong>Customer</strong></span>
             <span class="timestamp">{current_time}</span>
         </div>
         <div class="message-content">{prompt}</div>
@@ -468,7 +543,7 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
     """, unsafe_allow_html=True)
     
     # Get response from BuyBuddy
-    with st.status("🤖 BuyBuddy is working on your request...", expanded=True) as status:
+    with st.status("🛒 BuyBuddy is working on your request...", expanded=True) as status:
         thinking_container = st.empty()
         
         # Handle the customer query
@@ -483,7 +558,7 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
         "sender": "BuyBuddy",
         "content": result['main_response'],
         "timestamp": response_time,
-        "icon": "🤖",
+        "icon": get_agent_icon('buybuddy'),
         "thinking": result['thinking'],
         "specialist_responses": result.get('specialist_responses', [])
     }
