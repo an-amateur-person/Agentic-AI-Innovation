@@ -15,7 +15,7 @@ load_dotenv("../.env")
 def get_agent_icon(agent_name):
     """Get the custom icon for an agent (PNG or fallback to emoji)"""
     icon_mapping = {
-        'buybuddy': ('assets/buybuddy_icon.png', '🛒'),
+        'buybuddy': ('assets/buybuddy.png', '🛒'),
         'fridgebuddy': ('assets/fridgebuddy.png', '📦'),
         'insurancebuddy': ('assets/insurancebuddy.png', '🛡️'),
         'customer': (None, '👤')

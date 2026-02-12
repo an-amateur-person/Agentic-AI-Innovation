@@ -166,7 +166,7 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # Display title with icon
-icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'buybuddy_icon.png')
+icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'buybuddy.png')
 if os.path.exists(icon_path):
     # Read and encode the image for display
     import base64
