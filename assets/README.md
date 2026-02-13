@@ -15,4 +15,4 @@ If no custom icon is provided, the application will display a shopping cart emoj
 
 - **BuyBuddy (Retail Agent)**: `buybuddy.png` - Main customer service bot icon
 - **FridgeBuddy (Product Agent)**: `fridgebuddy.png` - Product specialist icon
-- **InsuranceBuddy (Finance Agent)**: `insurancebuddy.png` - Finance specialist icon
+- **InsuranceBuddy (Insurance Agent)**: `insurancebuddy.png` - Insurance specialist icon

@@ -1,6 +1,6 @@
 # Retail Agent
 # Primary agent that handles all customer interactions
-# Can coordinate with Product and Finance agents when needed
+# Can coordinate with Product and Insurance agents when needed
 
 from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from azure.ai.projects import AIProjectClient
@@ -76,17 +76,17 @@ def analyze_query_needs(user_input):
         'operations', 'factory', 'capacity', 'process', 'equipment', 'workflow'
     ])
     
-    needs_finance = any(kw in user_input_lower for kw in [
-        'cost', 'price', 'budget', 'finance', 'revenue', 'profit',
+    needs_insurance = any(kw in user_input_lower for kw in [
+        'cost', 'price', 'budget', 'insurance', 'revenue', 'profit',
         'expense', 'investment', 'roi', 'financial', 'accounting', 'payment'
     ])
     
     return {
         "needs_manufacturing": needs_product,
-        "needs_finance": needs_finance,
+        "needs_insurance": needs_insurance,
         "agents_needed": [
             "product" if needs_product else None,
-            "finance" if needs_finance else None
+            "insurance" if needs_insurance else None
         ]
     }
 
@@ -102,7 +102,7 @@ def get_retail_response(user_input, agent, openai_client, conversation_history=N
         # Build conversation context if available
         messages = []
         if conversation_history:
-            for msg in conversation_history[-5:]:  # Last 5 messages for context
+            for msg in conversation_history[-10:]:  # Last 10 messages for context
                 role = "user" if msg.get("role") == "user" else "assistant"
                 messages.append({"role": role, "content": msg.get("content", "")})
         
@@ -118,7 +118,7 @@ def get_retail_response(user_input, agent, openai_client, conversation_history=N
         return f"BuyBuddy Error: {str(e)}"
 
 def get_coordinated_response(user_input, retail_agent, openai_client, 
-                            product_agent=None, finance_agent=None,
+                            product_agent=None, insurance_agent=None,
                             conversation_history=None):
     """
     BuyBuddy coordinates with other agents when needed
@@ -140,30 +140,32 @@ def get_coordinated_response(user_input, retail_agent, openai_client,
         try:
             from product_agent import get_product_response
             prod_response = get_product_response(
-                f"Regarding: {user_input}\n\nBuyBuddy says: {main_response[:200]}...\n\nProvide product insights:",
+                f"Regarding: {user_input}\n\nBuyBuddy says: {main_response[:1000]}...\n\nProvide product insights:",
                 product_agent[0], 
                 product_agent[1]
             )
             result["specialist_responses"].append({
                 "agent": "FridgeBuddy",
                 "response": prod_response,
-                "icon": get_agent_icon('fridgebuddy')
+                "icon": get_agent_icon('fridgebuddy'),
+                "css_class": "product-message"
             })
         except Exception as e:
             pass
     
-    if analysis["needs_finance"] and finance_agent:
+    if analysis["needs_insurance"] and insurance_agent:
         try:
-            from finance_agent import get_finance_response
-            finance_response = get_finance_response(
-                f"Regarding: {user_input}\n\nBuyBuddy says: {main_response[:200]}...\n\nProvide financial insights:",
-                finance_agent[0],
-                finance_agent[1]
+            from insurance_agent import get_insurance_response
+            insurance_response = get_insurance_response(
+                f"Regarding: {user_input}\n\nBuyBuddy says: {main_response[:200]}...\n\nProvide insurance insights:",
+                insurance_agent[0],
+                insurance_agent[1]
             )
             result["specialist_responses"].append({
                 "agent": "InsuranceBuddy",
-                "response": finance_response,
-                "icon": get_agent_icon('insurancebuddy')
+                "response": insurance_response,
+                "icon": get_agent_icon('insurancebuddy'),
+                "css_class": "insurance-message"
             })
         except Exception as e:
             pass

@@ -1,6 +1,6 @@
 # Agentic AI Innovation - Retail Agent System
 
-An intelligent Streamlit application where customers interact directly with a Retail Agent that coordinates with specialized teams (Product and Finance) when needed.
+An intelligent Streamlit application where customers interact directly with a Retail Agent that coordinates with specialized teams (Product and Insurance) when needed.
 
 ## 🤖 Agent Architecture
 
@@ -25,9 +25,9 @@ An intelligent Streamlit application where customers interact directly with a Re
    - Consulted for: production, assembly, inventory, supply chain, factory processes, capacity
    - Provides specialist input when product topics are mentioned
 
-2. **Finance Agent** 💰
+2. **Insurance Agent** 💰
    - Consulted for: costs, pricing, budget, revenue, profit, expenses, investments, ROI
-   - Provides specialist input when financial topics are mentioned
+   - Provides specialist input when insurance/financial topics are mentioned
 
 ## 🚀 Features
 
@@ -85,7 +85,7 @@ An intelligent Streamlit application where customers interact directly with a Re
    - `AZURE_LOCATION` - Azure region (e.g., swedencentral)
    - `AGENT_RETAIL` - Retail Agent name (primary)
    - `AGENT_PRODUCT` - Product Agent name (specialist)
-   - `AGENT_FINANCE` - Finance Agent name (specialist)
+   - `AGENT_INSURANCE` - Insurance Agent name (specialist)
 
 ## 🏃 Running the Application
 
@@ -120,7 +120,7 @@ Agentic-AI-Innovation/
 ├── agents/
 │   ├── retail_agent.py           # Retail Agent (primary customer interface)
 │   ├── product_agent.py          # Product specialist (support)
-│   ├── finance_agent.py          # Finance specialist (support)
+│   ├── insurance_agent.py        # Insurance specialist (support)
 │   └── orchestrator.py           # DEPRECATED - no longer used
 └── .venv/                        # Virtual environment
 ```
@@ -148,13 +148,13 @@ Agentic-AI-Innovation/
 ```
 "What's the pricing for enterprise licensing?"
 ```
-→ Retail Agent consults Finance specialist and provides detailed pricing
+→ Retail Agent consults Insurance specialist and provides detailed pricing
 
 **Combined Query:**
 ```
 "Can you produce 10,000 units and what would the cost be?"
 ```
-→ Retail Agent consults both Product and Finance specialists
+→ Retail Agent consults both Product and Insurance specialists
 
 ## 🛠️ How It Works
 
@@ -162,14 +162,14 @@ Agentic-AI-Innovation/
 
 1. **Customer asks a question** → Retail Agent receives it
 2. **Analysis** → Retail Agent analyzes if specialist input is needed
-3. **Coordination** → Consults Product/Finance agents if relevant topics detected
+3. **Coordination** → Consults Product/Insurance agents if relevant topics detected
 4. **Response** → Retail Agent synthesizes all information into comprehensive answer
 
 ### Specialist Detection
 
 Retail Agent automatically detects when to consult specialists based on keywords:
 - **Product**: production, inventory, supply, operations, capacity, assembly
-- **Finance**: cost, price, budget, revenue, expense, investment, ROI
+- **Insurance**: cost, price, budget, revenue, expense, investment, ROI
 
 ## 📊 Agent Status
 
@@ -180,7 +180,7 @@ The sidebar displays real-time status of all agents:
 
 **Agent Roles:**
 - **Retail Agent (Primary)** - Must be configured for system to work
-- **Product & Finance (Specialists)** - Optional, consulted when needed
+- **Product & Insurance (Specialists)** - Optional, consulted when needed
 
 ## 🎯 Key Changes from Previous Version
 

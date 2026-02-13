@@ -1,5 +1,5 @@
-# Finance Agent
-# Handles financial and budget-related queries
+# Insurance Agent
+# Handles insurance and budget-related queries
 
 from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from azure.ai.projects import AIProjectClient
@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv("../.env")
 
-def initialize_finance_agent():
-    """Initialize the finance agent"""
+def initialize_insurance_agent():
+    """Initialize the insurance agent"""
     myEndpoint = os.getenv("AZURE_AIPROJECT_ENDPOINT")
     tenant_id = os.getenv("AZURE_TENANT_ID")
     
@@ -27,8 +27,8 @@ def initialize_finance_agent():
         credential=credential,
     )
     
-    # Get or create finance agent
-    myAgent = os.getenv("AGENT_FINANCE", "finance-agent")
+    # Get or create insurance agent
+    myAgent = os.getenv("AGENT_INSURANCE", "insurance-agent")
     try:
         agent = project_client.agents.get(agent_name=myAgent)
     except:
@@ -38,10 +38,10 @@ def initialize_finance_agent():
     openai_client = project_client.get_openai_client()
     return agent, openai_client
 
-def get_finance_response(user_input, agent, openai_client):
-    """Get response from finance agent"""
+def get_insurance_response(user_input, agent, openai_client):
+    """Get response from insurance agent"""
     if not agent:
-        return f"InsuranceBuddy: Analyzing financial query - '{user_input}'"
+        return f"InsuranceBuddy: Analyzing insurance query - '{user_input}'"
     
     try:
         response = openai_client.responses.create(
@@ -53,5 +53,5 @@ def get_finance_response(user_input, agent, openai_client):
         return f"InsuranceBuddy Error: {str(e)}"
 
 if __name__ == "__main__":
-    agent, client = initialize_finance_agent()
+    agent, client = initialize_insurance_agent()
     print("InsuranceBuddy initialized successfully")

@@ -23,7 +23,7 @@ from retail_agent import (
     analyze_query_needs
 )
 from product_agent import initialize_product_agent, get_product_response
-from finance_agent import initialize_finance_agent, get_finance_response
+from insurance_agent import initialize_insurance_agent, get_insurance_response
 
 # Load environment variables from .env file
 load_dotenv(".env")
@@ -116,7 +116,7 @@ custom_css = """
     border-left-color: #FFC107;
 }
 
-.finance-message {
+.insurance-message {
     border-left-color: #F44336;
 }
 
@@ -215,14 +215,14 @@ def initialize_all_agents():
             agents['product'] = None
             errors['product'] = str(e)
         
-        # Initialize Finance Agent (specialist)
+        # Initialize Insurance Agent (specialist)
         try:
-            finance_agent, finance_client = initialize_finance_agent()
-            agents['finance'] = finance_agent
-            clients['finance'] = finance_client
+            insurance_agent, insurance_client = initialize_insurance_agent()
+            agents['insurance'] = insurance_agent
+            clients['insurance'] = insurance_client
         except Exception as e:
-            agents['finance'] = None
-            errors['finance'] = str(e)
+            agents['insurance'] = None
+            errors['insurance'] = str(e)
             
     except Exception as e:
         errors['main'] = str(e)
@@ -246,7 +246,7 @@ with st.sidebar:
         
         st.markdown("**Specialist Agents:**")
         # Specialist agents
-        for agent_name in ['product', 'finance']:
+        for agent_name in ['product', 'insurance']:
             if agent_name in agents and agents[agent_name]:
                 display_name = "FridgeBuddy" if agent_name == 'product' else "InsuranceBuddy"
                 st.success(f"✅ {display_name}")
@@ -370,11 +370,11 @@ def handle_customer_query(user_input, thinking_container):
     # Analyze what specialists might be needed
     analysis = analyze_query_needs(user_input)
     
-    if analysis['needs_manufacturing'] or analysis['needs_finance']:
+    if analysis['needs_manufacturing'] or analysis['needs_insurance']:
         specialist_list = []
         if analysis['needs_manufacturing']:
             specialist_list.append("FridgeBuddy")
-        if analysis['needs_finance']:
+        if analysis['needs_insurance']:
             specialist_list.append("InsuranceBuddy")
         add_thinking_step(f"🔍 Will consult with: {', '.join(specialist_list)} specialist(s)")
     
@@ -389,7 +389,7 @@ def handle_customer_query(user_input, thinking_container):
                 agents['retail'],
                 clients['retail'],
                 (agents.get('product'), clients.get('product')) if analysis['needs_manufacturing'] else None,
-                (agents.get('finance'), clients.get('finance')) if analysis['needs_finance'] else None,
+                (agents.get('insurance'), clients.get('insurance')) if analysis['needs_insurance'] else None,
                 st.session_state.messages
             )
             
@@ -404,7 +404,7 @@ def handle_customer_query(user_input, thinking_container):
             add_thinking_step("⚠️ BuyBuddy not fully configured, using demo mode")
             return {
                 'thinking': "\n\n".join(thinking_steps),
-                'main_response': f"BuyBuddy (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with our product and finance teams as needed.",
+                'main_response': f"BuyBuddy (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with our product and insurance teams as needed.",
                 'specialist_responses': []
             }
     except Exception as e:
@@ -484,7 +484,7 @@ for msg in st.session_state.messages:
     elif "FridgeBuddy" in sender:
         css_class = "product-message"
     elif "InsuranceBuddy" in sender:
-        css_class = "finance-message"
+        css_class = "insurance-message"
     else:
         css_class = "chat-message"
     
