@@ -1,10 +1,10 @@
 # Product Agent
 # Handles product and operations queries
 
-from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from azure.ai.projects import AIProjectClient
 import os
 from dotenv import load_dotenv
+from .utilities import create_azure_credential
 
 # Load environment variables
 load_dotenv("../.env")
@@ -14,13 +14,10 @@ def initialize_product_agent():
     myEndpoint = os.getenv("AZURE_AIPROJECT_ENDPOINT")
     tenant_id = os.getenv("AZURE_TENANT_ID")
     
-    if not myEndpoint or not tenant_id:
-        raise ValueError("Missing required environment variables")
-    
-    credential = InteractiveBrowserCredential(
-        tenant_id=tenant_id,
-        additionally_allowed_tenants=["*"]
-    )
+    if not myEndpoint:
+        raise ValueError("Missing required environment variable: AZURE_AIPROJECT_ENDPOINT")
+
+    credential = create_azure_credential(tenant_id)
     
     project_client = AIProjectClient(
         endpoint=myEndpoint,

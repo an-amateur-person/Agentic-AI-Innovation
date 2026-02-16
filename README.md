@@ -1,23 +1,31 @@
-# Agentic AI Innovation - Retail Agent System
+# Agentic AI Innovation - BuyBuddy Multi-Agent System
 
-An intelligent Streamlit application where customers interact directly with a Retail Agent that coordinates with specialized teams (Product and Insurance) when needed.
+An intelligent Streamlit application where customers interact with a customer-facing BuyBuddy, while a backend BuyBuddy orchestrator coordinates specialized teams (Product and Insurance).
 
 ## 🤖 Agent Architecture
 
-### Retail Agent (Primary Interface) 🤖
+### BuyBuddy Customer-Facing Agent 🤖
 - **Role**: Main customer-facing agent
 - **Function**: 
   - Directly handles all customer interactions
   - Analyzes customer queries to understand their needs
-  - Coordinates with specialist agents when expertise is needed
-  - Provides comprehensive responses combining retail knowledge with specialist input
+   - Sends structured intake packet to BuyBuddy Orchestrator
+   - Presents final summarized response to customer
   - Maintains conversation context and history
 - **Display**: Shows coordination process and specialist consultations
 - **Advantages**: 
   - Single point of contact for customers
-  - Seamless specialist coordination
+   - Clear separation of customer interaction vs orchestration
   - Context-aware responses
   - Efficient query handling
+
+### BuyBuddy Orchestrator Agent ⚙️
+- **Role**: Backend orchestration agent
+- **Function**:
+   - Receives JSON packet from customer-facing BuyBuddy
+   - Routes requests to FridgeBuddy / InsuranceBuddy
+   - Enforces iteration and validation rules
+   - Returns JSON result with specialist outputs and response summary
 
 ### Specialist Agents (Support Teams)
 
@@ -38,7 +46,7 @@ An intelligent Streamlit application where customers interact directly with a Re
 - ✅ **Proposal Generation** - Create PDF proposals from conversations
 - ✅ **Floating bot icon** with animation
 - ✅ **Chat history** with reset functionality
-- ✅ **Azure AI integration** with browser-based authentication
+- ✅ **Azure AI integration** with cloud-first credentials (`DefaultAzureCredential` + local fallback)
 - ✅ **Agent status monitoring** in sidebar
 - ✅ **Graceful fallbacks** - Works even if specialist agents aren't configured
 
@@ -90,44 +98,45 @@ An intelligent Streamlit application where customers interact directly with a Re
 ## 🏃 Running the Application
 
 ```bash
-.\.venv\Scripts\streamlit.exe run agentic_ai.py
+.\.venv\Scripts\streamlit.exe run app.py
 ```
 
 Or if virtual environment is activated:
 ```bash
-streamlit run agentic_ai.py
+streamlit run app.py
 ```
 
 The app will open at `http://localhost:8501`
 
 ## 🔐 Authentication
 
-The application uses `InteractiveBrowserCredential` for Azure authentication:
-1. When you run the app, a browser window will open
-2. Sign in with your Microsoft account that has access to the Azure AI resources
-3. Grant necessary permissions
-4. The app will authenticate and connect to your Azure AI agents
+The application uses `DefaultAzureCredential` first, with `InteractiveBrowserCredential` fallback for local development.
+
+1. In hosted/cloud environments, managed identity or environment-based identity is used automatically.
+2. In local development, browser sign-in fallback is used when needed.
+3. Ensure your identity has access to the Azure AI resources.
 
 ## 📁 Project Structure
 
 ```
 Agentic-AI-Innovation/
-├── agentic_ai.py                 # Main Streamlit application with Retail Agent interface
+├── app.py                        # Main Streamlit application (BuyBuddy customer + orchestrator flow)
 ├── requirements.txt              # Python dependencies
 ├── .env                          # Environment configuration (not in git)
 ├── .env.example                  # Environment template
 ├── .gitignore                    # Git ignore rules
 ├── agents/
-│   ├── retail_agent.py           # Retail Agent (primary customer interface)
+│   ├── retail_agent.py           # retail_agent customer-facing layer
+│   ├── retail_orchestrator_agent.py # retail_agent backend orchestration layer
 │   ├── product_agent.py          # Product specialist (support)
 │   ├── insurance_agent.py        # Insurance specialist (support)
-│   └── orchestrator.py           # DEPRECATED - no longer used
+│   └── utilities.py              # Shared auth + BuyBuddy parsing/validation/icon utilities
 └── .venv/                        # Virtual environment
 ```
 
 **Note:** 
 - `.env` contains your actual credentials and is excluded from git
-- `orchestrator.py` is deprecated - Retail Agent now handles coordination
+- Inter-agent exchange between BuyBuddy layers and specialists is JSON-based
 - All hardcoded values have been removed - everything uses environment variables
 
 ## 💡 Usage Examples
@@ -205,7 +214,7 @@ MIT License - feel free to use and modify
 
 **Streamlit command not found:**
 ```bash
-.\.venv\Scripts\streamlit.exe run agentic_ai.py
+.\.venv\Scripts\streamlit.exe run app.py
 ```
 
 **PowerShell execution policy error:**

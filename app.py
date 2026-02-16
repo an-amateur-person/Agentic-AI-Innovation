@@ -1,28 +1,20 @@
 import streamlit as st
-from azure.identity import InteractiveBrowserCredential
-from azure.ai.projects import AIProjectClient
 import os
 from dotenv import load_dotenv
-import sys
 import json
+import re
 from datetime import datetime
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 
-# Add agents directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'agents'))
-
-from retail_agent import (
-    initialize_retail_agent, 
-    get_retail_response, 
-    get_coordinated_response
-)
-from product_agent import initialize_product_agent, get_product_response
-from insurance_agent import initialize_insurance_agent, get_insurance_response
+from agents.retail_agent import initialize_customer_facing_agent, collect_customer_input_packet
+from agents.retail_orchestrator_agent import initialize_orchestrator_agent, orchestrate_customer_packet
+from agents.utilities import map_state_to_phase
+from agents.product_agent import initialize_product_agent
+from agents.insurance_agent import initialize_insurance_agent
 
 # Load environment variables from .env file
 load_dotenv(".env")
@@ -32,7 +24,7 @@ def get_agent_icon(agent_name):
     """Get base64 encoded image for agent icon or return emoji fallback"""
     import base64
     icon_mapping = {
-        'buybuddy': ('buybuddy.png', '🛒'),
+        'retail_agent': ('buybuddy.png', '🛒'),
         'fridgebuddy': ('fridgebuddy.png', '📦'),
         'insurancebuddy': ('insurancebuddy.png', '🛡️'),
         'customer': (None, '👤')
@@ -51,6 +43,134 @@ def get_agent_icon(agent_name):
             except:
                 return fallback_emoji
     return fallback_emoji
+
+def format_insurance_response_for_ui(raw_response):
+    """Convert InsuranceBuddy JSON output into user-friendly plain text for UI display."""
+    if not raw_response:
+        return ""
+
+    response_text = str(raw_response).strip()
+    parsed = None
+
+    # Handle fenced json blocks
+    fenced_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', response_text, re.IGNORECASE)
+    if fenced_match:
+        response_text = fenced_match.group(1).strip()
+
+    try:
+        parsed = json.loads(response_text)
+    except Exception:
+        return raw_response
+
+    if not isinstance(parsed, dict):
+        return raw_response
+
+    status = str(parsed.get("status", "")).lower()
+
+    if status == "incomplete":
+        missing = parsed.get("missing_fields", [])
+        missing_text = ", ".join(missing) if isinstance(missing, list) and missing else "some details"
+        return (
+            f"I need a few more details to prepare your insurance quote: {missing_text}. "
+            "Please share these and I’ll continue right away."
+        )
+
+    if status == "declined":
+        reason = parsed.get("risk_assessment", {}).get("justification") if isinstance(parsed.get("risk_assessment"), dict) else None
+        if reason:
+            return f"Insurance is currently not available for this configuration. Reason: {reason}"
+        return "Insurance is currently not available for this configuration."
+
+    if status == "approved":
+        options = parsed.get("coverage_options", [])
+        recommendations = parsed.get("recommendations")
+        next_steps = parsed.get("next_steps")
+
+        option_summaries = []
+        if isinstance(options, list):
+            for option in options[:2]:
+                if not isinstance(option, dict):
+                    continue
+                bundle = option.get("bundle_name", "Coverage")
+                monthly = option.get("monthly_premium")
+                duration = option.get("duration")
+                parts = [bundle]
+                if monthly:
+                    parts.append(f"{monthly}/month")
+                if duration:
+                    parts.append(str(duration))
+                option_summaries.append(" - ".join(parts))
+
+        summary_lines = ["Great news — your product is eligible for insurance."]
+        if option_summaries:
+            summary_lines.append("Available options: " + "; ".join(option_summaries) + ".")
+        if recommendations:
+            summary_lines.append(f"Recommendation: {recommendations}")
+        if next_steps:
+            summary_lines.append(f"Next step: {next_steps}")
+
+        return " ".join(summary_lines)
+
+    return raw_response
+
+def format_product_response_for_ui(raw_response):
+    """Convert FridgeBuddy JSON output into user-friendly plain text for UI display."""
+    if not raw_response:
+        return ""
+
+    response_text = str(raw_response).strip()
+    parsed = None
+
+    fenced_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', response_text, re.IGNORECASE)
+    if fenced_match:
+        response_text = fenced_match.group(1).strip()
+
+    try:
+        parsed = json.loads(response_text)
+    except Exception:
+        return raw_response
+
+    if not isinstance(parsed, dict):
+        return raw_response
+
+    recommendations = parsed.get("recommended_models", [])
+    reason = parsed.get("reasoning") or parsed.get("summary") or parsed.get("notes")
+
+    if not isinstance(recommendations, list) or not recommendations:
+        if reason:
+            return f"I checked the Liebherr catalog. {reason}"
+        return raw_response
+
+    top_models = []
+    for model in recommendations[:3]:
+        if not isinstance(model, dict):
+            continue
+
+        name = (
+            model.get("model_name")
+            or model.get("model_number")
+            or model.get("name")
+            or "Liebherr model"
+        )
+        price = model.get("price") or model.get("price_range")
+        features = model.get("features") if isinstance(model.get("features"), list) else []
+
+        line = name
+        if price:
+            line += f" ({price})"
+        if features:
+            line += f" — {', '.join([str(f) for f in features[:3]])}"
+        top_models.append(line)
+
+    if not top_models:
+        return raw_response
+
+    summary_lines = ["Here are the top Liebherr options from FridgeBuddy:"]
+    summary_lines.extend([f"• {item}" for item in top_models])
+    if reason:
+        summary_lines.append(f"Why these: {reason}")
+
+    return "<br/>".join(summary_lines)
 
 # Webpage configurations
 st.set_page_config(page_title="Agentic AI System Interface", page_icon="🛒")
@@ -104,7 +224,20 @@ custom_css = """
 }
 
 .user-message {
-    border-left-color: #2196F3;
+    border-left: none;
+    border-right: 4px solid #2196F3;
+    margin-left: auto;
+    margin-right: 0;
+    max-width: 80%;
+    text-align: right;
+}
+
+.user-message .sender-name {
+    justify-content: flex-end;
+}
+
+.user-message .timestamp {
+    margin-left: 8px;
 }
 
 .retail-message {
@@ -189,21 +322,30 @@ st.write("Welcome! I'm your BuyBuddy. Ask me anything, and I'll coordinate with 
 # Initialize all agents
 @st.cache_resource
 def initialize_all_agents():
-    """Initialize retail agent and specialized agents"""
+    """Initialize customer-facing retail_agent and specialized agents"""
     agents = {}
     clients = {}
     errors = {}
     
     try:
-        # Initialize Retail Agent (primary)
+        # Initialize Customer-facing retail_agent
         try:
-            retail_agent, retail_client, project_client = initialize_retail_agent()
-            agents['retail'] = retail_agent
-            clients['retail'] = retail_client
+            customer_agent, customer_client, project_client = initialize_customer_facing_agent()
+            agents['customer'] = customer_agent
+            clients['customer'] = customer_client
             clients['project'] = project_client
         except Exception as e:
-            agents['retail'] = None
-            errors['retail'] = str(e)
+            agents['customer'] = None
+            errors['customer'] = str(e)
+
+        # Initialize Backend Orchestrator retail_agent
+        try:
+            orchestrator_agent, orchestrator_client = initialize_orchestrator_agent(clients.get('project'))
+            agents['orchestrator'] = orchestrator_agent
+            clients['orchestrator'] = orchestrator_client
+        except Exception as e:
+            agents['orchestrator'] = None
+            errors['orchestrator'] = str(e)
         
         # Initialize Product Agent (specialist)
         try:
@@ -230,12 +372,9 @@ def initialize_all_agents():
 
 agents, clients, init_errors = initialize_all_agents()
 
-# Import state mapping utility
-from agents.retail_agent import map_state_to_phase
-
 def determine_current_phase(conversation_history, last_state=None):
     """
-    Determine the current phase based on BuyBuddy's state or conversation history.
+    Determine the current phase based on retail_agent state or conversation history.
     
     PHASES:
     1. Customer Intake - Gathering requirements
@@ -246,11 +385,11 @@ def determine_current_phase(conversation_history, last_state=None):
     
     Args:
         conversation_history: Previous messages
-        last_state: Parsed state from BuyBuddy's last response
+        last_state: Parsed state from retail_agent last response
     
     Returns: int (1-5)
     """
-    # Prefer using BuyBuddy's actual state if available
+    # Prefer using retail_agent's actual state if available
     if last_state:
         return map_state_to_phase(last_state)
     
@@ -285,8 +424,8 @@ def determine_current_phase(conversation_history, last_state=None):
 if "current_phase" not in st.session_state:
     st.session_state.current_phase = 1
 
-if "buybuddy_state" not in st.session_state:
-    st.session_state.buybuddy_state = None
+if "retail_state" not in st.session_state:
+    st.session_state.retail_state = None
 
 if "iteration_counts" not in st.session_state:
     st.session_state.iteration_counts = {
@@ -303,10 +442,10 @@ with st.sidebar:
     # Phase Tracker - Compact view
     st.subheader("📋 Progress")
     
-    # Update current phase based on BuyBuddy state or conversation
+    # Update current phase based on retail_agent state or conversation
     current_phase = determine_current_phase(
         st.session_state.get('messages', []),
-        st.session_state.get('buybuddy_state')
+        st.session_state.get('retail_state')
     )
     st.session_state.current_phase = current_phase
     
@@ -330,21 +469,16 @@ with st.sidebar:
     
     st.markdown(" → ".join(phase_status))
     
-    # Show iteration counts (for debugging/transparency)
-    with st.expander("📊 Iteration Stats", expanded=False):
-        counts = st.session_state.iteration_counts
-        st.metric("Customer Q&A", f"{counts['customer_clarifications']}/10")
-        st.metric("FridgeBuddy Calls", f"{counts['product_agent_calls']}/3")
-        st.metric("InsuranceBuddy Calls", f"{counts['insurance_agent_calls']}/3")
-    
     st.markdown("---")
     
     # Agent Status - Compact
     st.subheader("🤖 Agents")
     if 'main' not in init_errors:
         agent_icons = []
-        if agents.get('retail'):
-            agent_icons.append("🛒 BuyBuddy")
+        if agents.get('customer'):
+            agent_icons.append("🛒 BuyBuddy (Customer)")
+        if agents.get('orchestrator'):
+            agent_icons.append("⚙️ BuyBuddy (Orchestrator)")
         if agents.get('product'):
             agent_icons.append("📦 FridgeBuddy")
         if agents.get('insurance'):
@@ -369,7 +503,7 @@ def generate_quotation():
         content = msg.get("content", "")
         conversation_text += f"{sender}: {content}\n\n"
     
-    # Create prompt for retail agent to generate quotation after collaboration
+    # Create prompt for customer-facing retail_agent to generate quotation after collaboration
     quotation_prompt = f"""Based on the collaboration between BuyBuddy, FridgeBuddy, and InsuranceBuddy agents in the conversation below, create a formal product quotation for the customer.
 
 The quotation should include:
@@ -387,15 +521,15 @@ Conversation History:
 Generate a comprehensive, professional product quotation document that consolidates inputs from all three agents."""
     
     try:
-        if agents.get('retail') and clients.get('retail'):
-            response = clients['retail'].responses.create(
+        if agents.get('customer') and clients.get('customer'):
+            response = clients['customer'].responses.create(
                 input=[{"role": "user", "content": quotation_prompt}],
-                extra_body={"agent": {"name": agents['retail'].name, "type": "agent_reference"}},
+                extra_body={"agent": {"name": agents['customer'].name, "type": "agent_reference"}},
             )
             quotation_text = response.output_text
             return quotation_text, None
         else:
-            return None, "BuyBuddy is not available to generate quotation."
+            return None, "BuyBuddy customer-facing agent is not available to generate quotation."
     except Exception as e:
         return None, f"Error generating quotation: {str(e)}"
 
@@ -457,8 +591,8 @@ def get_pdf_buffer(quotation_text):
 
 def handle_customer_query(user_input, thinking_container):
     """
-    Handle customer query through BuyBuddy
-    BuyBuddy coordinates with specialists when needed
+    Handle customer query through retail_agent
+    retail_agent coordinates with specialists when needed
     """
     thinking_steps = []
     
@@ -481,20 +615,38 @@ def handle_customer_query(user_input, thinking_container):
         }
     
     try:
-        if agents.get('retail'):
-            # Get coordinated response - retail agent handles routing decisions
-            result = get_coordinated_response(
+        if agents.get('customer'):
+            add_thinking_step("🧾 BuyBuddy is collecting your requirements...")
+
+            customer_packet = collect_customer_input_packet(
                 user_input,
-                agents['retail'],
-                clients['retail'],
+                agents['customer'],
+                clients['customer'],
+                st.session_state.messages,
+                st.session_state.iteration_counts,
+            )
+
+            add_thinking_step("⚙️ Orchestrator is coordinating specialist requests...")
+
+            orchestrator_result = orchestrate_customer_packet(
+                customer_packet,
+                agents.get('orchestrator'),
+                clients.get('orchestrator'),
                 (agents.get('product'), clients.get('product')),
                 (agents.get('insurance'), clients.get('insurance')),
                 st.session_state.messages,
-                st.session_state.iteration_counts  # Pass iteration counters
+                st.session_state.iteration_counts,
             )
+
+            result = {
+                'main_response': orchestrator_result.get('customer_response', ''),
+                'state': orchestrator_result.get('state'),
+                'inventory_check': orchestrator_result.get('inventory_check'),
+                'specialist_responses': orchestrator_result.get('specialist_responses', []),
+            }
             
-            # Store BuyBuddy's state
-            st.session_state.buybuddy_state = result.get('state')
+            # Store retail_agent state
+            st.session_state.retail_state = result.get('state')
             
             # Increment customer clarification counter
             st.session_state.iteration_counts['customer_clarifications'] += 1
@@ -539,7 +691,7 @@ if "messages" not in st.session_state:
         "sender": "BuyBuddy",
         "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
-        "icon": get_agent_icon('buybuddy')
+        "icon": get_agent_icon('retail_agent')
     }]
 
 # Reset chat history button
@@ -549,7 +701,7 @@ if st.sidebar.button("🔄 Reset Chat"):
         "sender": "BuyBuddy",
         "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
-        "icon": get_agent_icon('buybuddy')
+        "icon": get_agent_icon('retail_agent')
     }]
     # Reset all tracking flags
     st.session_state.inventory_checked_once = False
@@ -558,7 +710,7 @@ if st.sidebar.button("🔄 Reset Chat"):
         'product_agent_calls': 0,
         'insurance_agent_calls': 0
     }
-    st.session_state.buybuddy_state = None
+    st.session_state.retail_state = None
     st.session_state.current_phase = 1
     st.rerun()
 
@@ -649,18 +801,8 @@ for msg in st.session_state.messages:
         </div>
         """, unsafe_allow_html=True)
     
-    # Show specialist responses if available
-    if msg.get("specialist_responses"):
-        for specialist in msg["specialist_responses"]:
-            st.markdown(f"""
-            <div class="chat-message {specialist.get('css_class', 'chat-message')}">
-                <div class="sender-name">
-                    <span>{specialist['icon']} <strong>{specialist['agent']}</strong></span>
-                    <span class="specialist-badge">Specialist Input</span>
-                </div>
-                <div class="message-content">{specialist['response']}</div>
-            </div>
-            """, unsafe_allow_html=True)
+    # Specialist responses are intentionally not rendered directly in UI.
+    # Orchestrator summarizes specialist outputs into BuyBuddy's main response.
 
 # Receive user input and generate response
 if prompt := st.chat_input(placeholder="Ask me anything..."):
@@ -696,14 +838,14 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
         
         status.update(label="✅ Response ready!", state="complete", expanded=False)
     
-    # Add BuyBuddy's response to message history
+    # Add BuyBuddy response to message history
     response_time = datetime.now().strftime("%I:%M %p")
     agent_message = {
         "role": "agent",
         "sender": "BuyBuddy",
         "content": result['main_response'],
         "timestamp": response_time,
-        "icon": get_agent_icon('buybuddy'),
+        "icon": get_agent_icon('retail_agent'),
         "thinking": result['thinking'],
         "inventory_check": result.get('inventory_check'),
         "specialist_responses": result.get('specialist_responses', [])
