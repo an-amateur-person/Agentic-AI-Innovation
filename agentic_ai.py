@@ -1,5 +1,5 @@
 import streamlit as st
-from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
+from azure.identity import InteractiveBrowserCredential
 from azure.ai.projects import AIProjectClient
 import os
 from dotenv import load_dotenv
@@ -19,8 +19,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'agents'))
 from retail_agent import (
     initialize_retail_agent, 
     get_retail_response, 
-    get_coordinated_response,
-    analyze_query_needs
+    get_coordinated_response
 )
 from product_agent import initialize_product_agent, get_product_response
 from insurance_agent import initialize_insurance_agent, get_insurance_response
@@ -33,7 +32,7 @@ def get_agent_icon(agent_name):
     """Get base64 encoded image for agent icon or return emoji fallback"""
     import base64
     icon_mapping = {
-        'buybuddy': ('buybuddy_icon.png', '🛒'),
+        'buybuddy': ('buybuddy.png', '🛒'),
         'fridgebuddy': ('fridgebuddy.png', '📦'),
         'insurancebuddy': ('insurancebuddy.png', '🛡️'),
         'customer': (None, '👤')
@@ -231,29 +230,132 @@ def initialize_all_agents():
 
 agents, clients, init_errors = initialize_all_agents()
 
+# Import state mapping utility
+from agents.retail_agent import map_state_to_phase
+
+def determine_current_phase(conversation_history, last_state=None):
+    """
+    Determine the current phase based on BuyBuddy's state or conversation history.
+    
+    PHASES:
+    1. Customer Intake - Gathering requirements
+    2. Inventory Decision - Checking internal stock
+    3. Product Agreement - Validating product selection
+    4. Insurance - Offering protection plans
+    5. Final Consolidation - Generating quotation
+    
+    Args:
+        conversation_history: Previous messages
+        last_state: Parsed state from BuyBuddy's last response
+    
+    Returns: int (1-5)
+    """
+    # Prefer using BuyBuddy's actual state if available
+    if last_state:
+        return map_state_to_phase(last_state)
+    
+    # Fallback to keyword-based detection
+    if not conversation_history or len(conversation_history) <= 1:
+        return 1  # Starting phase
+    
+    # Analyze last few messages for phase indicators
+    recent_messages = conversation_history[-5:] if len(conversation_history) >= 5 else conversation_history
+    conversation_text = " ".join([msg.get("content", "").lower() for msg in recent_messages])
+    
+    # Phase 5: Final consolidation keywords
+    if any(kw in conversation_text for kw in ['quotation', 'final price', 'ready to checkout', 'confirm order', 'total cost']):
+        return 5
+    
+    # Phase 4: Insurance keywords
+    if any(kw in conversation_text for kw in ['insurance', 'warranty', 'protection plan', 'coverage', 'ergo']):
+        return 4
+    
+    # Phase 3: Product agreement keywords
+    if any(kw in conversation_text for kw in ['confirm', 'agreed', 'accept', 'this model', 'go with']):
+        return 3
+    
+    # Phase 2: Inventory/product search keywords
+    if any(kw in conversation_text for kw in ['product', 'fridge', 'looking for', 'need', 'stock', 'available', 'liebherr']):
+        return 2
+    
+    # Default: Phase 1 (intake)
+    return 1
+
+# Initialize phase tracking and iteration counters in session state
+if "current_phase" not in st.session_state:
+    st.session_state.current_phase = 1
+
+if "buybuddy_state" not in st.session_state:
+    st.session_state.buybuddy_state = None
+
+if "iteration_counts" not in st.session_state:
+    st.session_state.iteration_counts = {
+        'customer_clarifications': 0,
+        'product_agent_calls': 0,
+        'insurance_agent_calls': 0
+    }
+
+if "inventory_checked_once" not in st.session_state:
+    st.session_state.inventory_checked_once = False
+
 # Display initialization status in sidebar
 with st.sidebar:
-    st.subheader("🤖 Agent Status")
-    if 'main' in init_errors:
-        st.error(f"❌ Initialization failed: {init_errors['main']}")
-    else:
-        # Retail Agent status
-        if agents.get('retail'):
-            st.success("✅ BuyBuddy (Primary)")
+    # Phase Tracker - Compact view
+    st.subheader("📋 Progress")
+    
+    # Update current phase based on BuyBuddy state or conversation
+    current_phase = determine_current_phase(
+        st.session_state.get('messages', []),
+        st.session_state.get('buybuddy_state')
+    )
+    st.session_state.current_phase = current_phase
+    
+    phases = [
+        (1, "Intake"),
+        (2, "Inventory"),
+        (3, "Agreement"),
+        (4, "Insurance"),
+        (5, "Quotation")
+    ]
+    
+    # Compact phase display
+    phase_status = []
+    for num, title in phases:
+        if num < current_phase:
+            phase_status.append(f"✅ {title}")
+        elif num == current_phase:
+            phase_status.append(f"▶️ **{title}**")
         else:
-            error_msg = init_errors.get('retail', "Not configured")
-            st.error(f"❌ BuyBuddy: {error_msg}")
+            phase_status.append(f"⏸️ {title}")
+    
+    st.markdown(" → ".join(phase_status))
+    
+    # Show iteration counts (for debugging/transparency)
+    with st.expander("📊 Iteration Stats", expanded=False):
+        counts = st.session_state.iteration_counts
+        st.metric("Customer Q&A", f"{counts['customer_clarifications']}/5")
+        st.metric("FridgeBuddy Calls", f"{counts['product_agent_calls']}/3")
+        st.metric("InsuranceBuddy Calls", f"{counts['insurance_agent_calls']}/3")
+    
+    st.markdown("---")
+    
+    # Agent Status - Compact
+    st.subheader("🤖 Agents")
+    if 'main' not in init_errors:
+        agent_icons = []
+        if agents.get('retail'):
+            agent_icons.append("🛒 BuyBuddy")
+        if agents.get('product'):
+            agent_icons.append("📦 FridgeBuddy")
+        if agents.get('insurance'):
+            agent_icons.append("🛡️ InsuranceBuddy")
         
-        st.markdown("**Specialist Agents:**")
-        # Specialist agents
-        for agent_name in ['product', 'insurance']:
-            if agent_name in agents and agents[agent_name]:
-                display_name = "FridgeBuddy" if agent_name == 'product' else "InsuranceBuddy"
-                st.success(f"✅ {display_name}")
-            else:
-                error_msg = init_errors.get(agent_name, "Not configured")
-                display_name = "FridgeBuddy" if agent_name == 'product' else "InsuranceBuddy"
-                st.warning(f"⚠️ {display_name}: {error_msg}")
+        if agent_icons:
+            st.success(" | ".join(agent_icons))
+        else:
+            st.warning("No agents configured")
+    else:
+        st.error("Initialization failed")
 
 def generate_quotation():
     """Generate a product quotation after all agents collaborate to finalize the offer"""
@@ -367,37 +469,43 @@ def handle_customer_query(user_input, thinking_container):
     
     add_thinking_step("🛒 BuyBuddy is analyzing your query...")
     
-    # Analyze what specialists might be needed
-    analysis = analyze_query_needs(user_input)
-    
-    if analysis['needs_manufacturing'] or analysis['needs_insurance']:
-        specialist_list = []
-        if analysis['needs_manufacturing']:
-            specialist_list.append("FridgeBuddy")
-        if analysis['needs_insurance']:
-            specialist_list.append("InsuranceBuddy")
-        add_thinking_step(f"🔍 Will consult with: {', '.join(specialist_list)} specialist(s)")
-    
-    # Get coordinated response
-    add_thinking_step("💬 Preparing comprehensive response...")
+    # Check iteration limits
+    if st.session_state.iteration_counts['customer_clarifications'] >= 5:
+        add_thinking_step("⚠️ Max clarifications reached - proposing best match")
     
     try:
         if agents.get('retail'):
-            # Get coordinated response
+            # Get coordinated response - retail agent handles routing decisions
             result = get_coordinated_response(
                 user_input,
                 agents['retail'],
                 clients['retail'],
-                (agents.get('product'), clients.get('product')) if analysis['needs_manufacturing'] else None,
-                (agents.get('insurance'), clients.get('insurance')) if analysis['needs_insurance'] else None,
-                st.session_state.messages
+                (agents.get('product'), clients.get('product')),
+                (agents.get('insurance'), clients.get('insurance')),
+                st.session_state.messages,
+                st.session_state.iteration_counts  # Pass iteration counters
             )
             
-            add_thinking_step("✅ Response ready!")
+            # Store BuyBuddy's state
+            st.session_state.buybuddy_state = result.get('state')
+            
+            # Increment customer clarification counter
+            st.session_state.iteration_counts['customer_clarifications'] += 1
+            
+            # Show thinking steps based on what retail agent decided
+            if result.get('inventory_check'):
+                add_thinking_step("📦 Checked internal MediaMarktSaturn inventory")
+            
+            if result.get('specialist_responses'):
+                specialists = [s['agent'] for s in result['specialist_responses']]
+                add_thinking_step(f"🔍 Consulted with: {', '.join(specialists)}")
+            
+            add_thinking_step("💬 Response ready!")
             
             return {
                 'thinking': "\n\n".join(thinking_steps),
                 'main_response': result['main_response'],
+                'inventory_check': result.get('inventory_check'),
                 'specialist_responses': result['specialist_responses']
             }
         else:
@@ -405,6 +513,7 @@ def handle_customer_query(user_input, thinking_container):
             return {
                 'thinking': "\n\n".join(thinking_steps),
                 'main_response': f"BuyBuddy (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with our product and insurance teams as needed.",
+                'inventory_check': None,
                 'specialist_responses': []
             }
     except Exception as e:
@@ -412,6 +521,7 @@ def handle_customer_query(user_input, thinking_container):
         return {
             'thinking': "\n\n".join(thinking_steps),
             'main_response': f"I apologize, but I encountered an error: {str(e)}",
+            'inventory_check': None,
             'specialist_responses': []
         }
 
@@ -434,40 +544,49 @@ if st.sidebar.button("🔄 Reset Chat"):
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": get_agent_icon('buybuddy')
     }]
+    # Reset all tracking flags
+    st.session_state.inventory_checked_once = False
+    st.session_state.iteration_counts = {
+        'customer_clarifications': 0,
+        'product_agent_calls': 0,
+        'insurance_agent_calls': 0
+    }
+    st.session_state.buybuddy_state = None
+    st.session_state.current_phase = 1
     st.rerun()
 
-# Quotation generation section
-st.sidebar.markdown("---")
-st.sidebar.subheader("💰 Generate Quotation")
-st.sidebar.write("Generate a product quotation based on collaboration between BuyBuddy, FridgeBuddy, and InsuranceBuddy.")
-
-if st.sidebar.button("Generate Quotation PDF", type="primary"):
-    if len(st.session_state.messages) <= 1:
-        st.sidebar.warning("Start a conversation first before generating a quotation!")
-    else:
-        with st.sidebar:
-            with st.spinner("Agents are finalizing your quotation..."):
-                quotation_text, error = generate_quotation()
-                
-                if error:
-                    st.error(error)
-                elif quotation_text:
-                    # Generate PDF
-                    pdf_buffer = get_pdf_buffer(quotation_text)
+# Show quotation section only in final phase (Phase 5)
+if st.session_state.current_phase >= 5:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("💰 Final Proposal")
+    if st.sidebar.button("📄 Generate Proposal", type="primary", use_container_width=True):
+        if len(st.session_state.messages) <= 1:
+            st.sidebar.warning("Start a conversation first!")
+        else:
+            with st.sidebar:
+                with st.spinner("Finalizing proposal..."):
+                    quotation_text, error = generate_quotation()
                     
-                    # Offer download
-                    st.success("✅ Quotation generated successfully!")
-                    st.download_button(
-                        label="📥 Download Quotation PDF",
-                        data=pdf_buffer,
-                        file_name=f"quotation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf",
-                        type="primary"
-                    )
-                    
-                    # Show preview
-                    with st.expander("Preview Quotation"):
-                        st.markdown(quotation_text)
+                    if error:
+                        st.error(error)
+                    elif quotation_text:
+                        # Generate PDF
+                        pdf_buffer = get_pdf_buffer(quotation_text)
+                        
+                        # Offer download
+                        st.success("✅ Ready!")
+                        st.download_button(
+                            label="📥 Download PDF",
+                            data=pdf_buffer,
+                            file_name=f"proposal_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            use_container_width=True
+                        )
+                        
+                        # Show preview
+                        with st.expander("Preview"):
+                            st.markdown(quotation_text)
 
 # Display chat messages
 for msg in st.session_state.messages:
@@ -503,6 +622,25 @@ for msg in st.session_state.messages:
     if msg["role"] == "agent" and "thinking" in msg:
         with st.expander("🧠 Agent Coordination Process", expanded=False):
             st.markdown(msg["thinking"])
+    
+    # Show internal inventory check results if available (only once per session)
+    if msg.get("inventory_check") and msg["inventory_check"].get("checked"):
+        # Only show if we haven't shown it before
+        if not st.session_state.inventory_checked_once:
+            st.session_state.inventory_checked_once = True
+            inventory = msg["inventory_check"]
+            st.markdown(f"""
+        <div class="chat-message retail-message" style="border-left-color: #FF9800; background-color: rgba(255, 152, 0, 0.1);">
+            <div class="sender-name">
+                <span>📦 <strong>Internal Inventory Check</strong></span>
+                <span class="specialist-badge" style="background-color: #FFE0B2; color: #E65100;">MediaMarktSaturn</span>
+            </div>
+            <div class="message-content">
+                <strong>{inventory.get('summary', 'Inventory check completed')}</strong><br/>
+                {inventory.get('details', 'Checked our internal database for available products.')}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Show specialist responses if available
     if msg.get("specialist_responses"):
@@ -560,6 +698,7 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
         "timestamp": response_time,
         "icon": get_agent_icon('buybuddy'),
         "thinking": result['thinking'],
+        "inventory_check": result.get('inventory_check'),
         "specialist_responses": result.get('specialist_responses', [])
     }
     st.session_state.messages.append(agent_message)
