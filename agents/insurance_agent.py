@@ -5,6 +5,7 @@ from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from azure.ai.projects import AIProjectClient
 import os
 from dotenv import load_dotenv
+import json
 
 # Load environment variables
 load_dotenv("../.env")
@@ -40,12 +41,16 @@ def initialize_insurance_agent():
 
 def get_insurance_response(user_input, agent, openai_client):
     """Get response from insurance agent"""
+    payload = user_input
+    if isinstance(user_input, (dict, list)):
+        payload = json.dumps(user_input, ensure_ascii=False)
+
     if not agent:
-        return f"InsuranceBuddy: Analyzing insurance query - '{user_input}'"
+        return f"InsuranceBuddy: Analyzing insurance query - '{payload}'"
     
     try:
         response = openai_client.responses.create(
-            input=[{"role": "user", "content": user_input}],
+            input=[{"role": "user", "content": payload}],
             extra_body={"agent": {"name": agent.name, "type": "agent_reference"}},
         )
         return response.output_text

@@ -333,7 +333,7 @@ with st.sidebar:
     # Show iteration counts (for debugging/transparency)
     with st.expander("📊 Iteration Stats", expanded=False):
         counts = st.session_state.iteration_counts
-        st.metric("Customer Q&A", f"{counts['customer_clarifications']}/5")
+        st.metric("Customer Q&A", f"{counts['customer_clarifications']}/10")
         st.metric("FridgeBuddy Calls", f"{counts['product_agent_calls']}/3")
         st.metric("InsuranceBuddy Calls", f"{counts['insurance_agent_calls']}/3")
     
@@ -470,8 +470,15 @@ def handle_customer_query(user_input, thinking_container):
     add_thinking_step("🛒 BuyBuddy is analyzing your query...")
     
     # Check iteration limits
-    if st.session_state.iteration_counts['customer_clarifications'] >= 5:
-        add_thinking_step("⚠️ Max clarifications reached - proposing best match")
+    if st.session_state.iteration_counts['customer_clarifications'] >= 10:
+        add_thinking_step("⚠️ Maximum BuyBuddy conversation iterations reached (10/10)")
+        add_thinking_step("💡 Please reset chat to start a new conversation.")
+        return {
+            'thinking': "\n\n".join(thinking_steps),
+            'main_response': "I have reached the maximum of 10 conversation iterations for this session. Please click 'Reset Chat' to continue with a new request.",
+            'inventory_check': None,
+            'specialist_responses': []
+        }
     
     try:
         if agents.get('retail'):

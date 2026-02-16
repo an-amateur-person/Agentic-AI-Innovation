@@ -146,10 +146,16 @@ def extract_requirements(conversation_history):
     text = ' '.join([msg.get('content', '') for msg in conversation_history[-5:]])
     text_lower = text.lower()
     
-    # Extract budget
-    budget_match = re.search(r'(\d+(?:,\d+)?(?:\.\d+)?)\s*(eur|euro|€|dollar|\$)', text_lower)
-    if budget_match:
-        requirements['budget'] = budget_match.group(0)
+    # Extract budget (supports both "3000 EUR" and "EUR 3000")
+    budget_patterns = [
+        r'(\d+(?:[.,]\d+)*)\s*(eur|euro|€|dollar|\$)',
+        r'(eur|euro|€|dollar|\$)\s*(\d+(?:[.,]\d+)*)'
+    ]
+    for pattern in budget_patterns:
+        budget_match = re.search(pattern, text_lower)
+        if budget_match:
+            requirements['budget'] = budget_match.group(0)
+            break
     
     # Extract region
     regions = ['germany', 'france', 'austria', 'switzerland', 'europe']
@@ -186,6 +192,130 @@ def map_state_to_phase(state):
     
     return phase_map.get(overall_status, 1)
 
+def extract_product_details(conversation_history):
+    """
+    Extract selected product details from conversation history.
+
+    Returns: dict with product_model and key_features
+    """
+    product_details = {
+        'product_model': None,
+        'key_features': []
+    }
+
+    if not conversation_history:
+        return product_details
+
+    recent_messages = conversation_history[-12:]
+    text_parts = []
+
+    # Include primary messages + specialist responses (FridgeBuddy output is often here)
+    for msg in recent_messages:
+        content = msg.get('content', '')
+        if content:
+            text_parts.append(content)
+
+        for specialist in msg.get('specialist_responses', []) or []:
+            specialist_response = specialist.get('response', '')
+            if specialist_response:
+                text_parts.append(specialist_response)
+
+    text = ' '.join(text_parts)
+    text_lower = text.lower()
+
+    # Try to detect product model references such as:
+    # "model FD-3600", "FD-3600", "Liebherr XRF-5220"
+    model_patterns = [
+        r'\bmodel\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9\-_/]{1,30})\b',
+        r'\b([A-Z]{1,5}-\d{2,6}[A-Z0-9-]*)\b',
+        r'\b([A-Z]{2,5}\d{2,6}[A-Z0-9-]*)\b'
+    ]
+
+    for pattern in model_patterns:
+        match = re.search(pattern, text)
+        if match:
+            candidate = match.group(1).strip()
+            if candidate and candidate.lower() not in {'from', 'with', 'this', 'that', 'model'}:
+                product_details['product_model'] = candidate
+                break
+
+    # Extract known feature keywords
+    feature_keywords = [
+        'ice maker',
+        'water dispenser',
+        'french door',
+        'energy efficient',
+        'energy-efficient',
+        'no frost',
+        'a+++',
+        'nofrost',
+        'biofresh',
+        'smart'
+    ]
+
+    extracted_features = [feature for feature in feature_keywords if feature in text_lower]
+
+    # Try to parse JSON-like specialist output and extract model/features directly
+    json_candidates = []
+
+    fenced_json_matches = re.findall(r'```json\s*(\{[\s\S]*?\})\s*```', text, re.IGNORECASE)
+    json_candidates.extend(fenced_json_matches)
+
+    if not json_candidates:
+        loose_json_matches = re.findall(r'(\{[\s\S]*\})', text)
+        if loose_json_matches:
+            json_candidates.append(loose_json_matches[-1])
+
+    for candidate in json_candidates:
+        try:
+            parsed = json.loads(candidate)
+
+            # Direct keys
+            if not product_details['product_model']:
+                product_details['product_model'] = parsed.get('product_model') or product_details['product_model']
+
+            parsed_features = parsed.get('key_features')
+            if isinstance(parsed_features, list):
+                extracted_features.extend([str(item).strip().lower() for item in parsed_features if item])
+
+            # FridgeBuddy-style structure
+            recommended = parsed.get('recommended_models')
+            if isinstance(recommended, list) and recommended:
+                first_model = recommended[0] if isinstance(recommended[0], dict) else {}
+
+                if not product_details['product_model']:
+                    product_details['product_model'] = (
+                        first_model.get('model_number') or
+                        first_model.get('model_name') or
+                        product_details['product_model']
+                    )
+
+                model_features = first_model.get('features')
+                if isinstance(model_features, list):
+                    extracted_features.extend([str(item).strip().lower() for item in model_features if item])
+
+            break
+        except Exception:
+            continue
+
+    # Fallback to requirement extraction if still sparse
+    if not extracted_features:
+        extracted_features.extend(extract_requirements(conversation_history).get('features', []))
+
+    # Normalize and deduplicate while preserving order
+    normalized = []
+    seen = set()
+    for feature in extracted_features:
+        value = str(feature).strip().lower()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+
+    product_details['key_features'] = normalized
+
+    return product_details
+
 def validate_insurance_context(state, conversation_history):
     """
     Validate that required fields are present before routing to ERGO.
@@ -206,7 +336,12 @@ def validate_insurance_context(state, conversation_history):
     # Check for minimum required fields
     if not requirements.get('budget'):
         return False, "Product price not confirmed - cannot calculate premium"
-    
+
+    product_details = extract_product_details(conversation_history)
+
+    if not product_details.get('product_model'):
+        return False, "Product model not confirmed - please confirm selected model before insurance"
+
     return True, None
 
 def validate_product_context(conversation_history):
@@ -481,25 +616,18 @@ Please provide Liebherr product recommendations based on the customer requiremen
                 
                 # Build structured JSON context with required fields
                 requirements = extract_requirements(conversation_history)
+                product_details = extract_product_details(conversation_history)
                 insurance_context = {
                     "manufacturer": "Liebherr",
                     "product_type": "Refrigerator",
-                    "product_model": "Model from conversation",  # Extract from history
-                    "key_features": requirements.get('features', []),
+                    "product_model": product_details.get('product_model'),
+                    "key_features": product_details.get('key_features') or requirements.get('features') or ["standard configuration"],
                     "configuration_class": "Standard",
                     "purchase_price": requirements.get('budget', 'TBD')
                 }
                 
-                # Format as message with context
-                context_message = f"""You are receiving a structured request from MediaMarktSaturn Sales Agent.
-
-Product Information (JSON):
-{json.dumps(insurance_context, indent=2)}
-
-Please assess insurability and calculate premium based on the product information above. Return your response in the structured JSON format specified in your instructions."""
-                
                 insurance_response = get_insurance_response(
-                    context_message,
+                    insurance_context,
                     insurance_agent[0], 
                     insurance_agent[1]
                 )

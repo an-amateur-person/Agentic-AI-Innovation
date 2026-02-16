@@ -72,7 +72,7 @@ This update implements a robust state-based orchestration system with structured
 #### Session State Tracking:
 ```python
 st.session_state.iteration_counts = {
-    'customer_clarifications': 0,  # Max: 5
+  'customer_clarifications': 0,  # Max: 10
     'product_agent_calls': 0,      # Max: 3
     'insurance_agent_calls': 0     # Max: 3
 }
@@ -124,7 +124,7 @@ st.session_state.iteration_counts = {
 #### Iteration Stats Display:
 ```python
 with st.expander("📊 Iteration Stats"):
-    st.metric("Customer Q&A", "2/5")
+  st.metric("Customer Q&A", "2/10")
     st.metric("FridgeBuddy Calls", "1/3")
     st.metric("InsuranceBuddy Calls", "0/3")
 ```
@@ -233,7 +233,7 @@ with st.expander("📊 Iteration Stats"):
 ### Test Scenario 2: Iteration Limits
 1. Start conversation
 2. Ask 5 clarifying questions
-3. Verify: Warning appears "Max clarifications reached"
+3. Verify: Warning appears "Max clarifications reached" after 10 customer clarification iterations
 4. Route to FridgeBuddy 3 times
 5. Verify: "Maximum FridgeBuddy iterations reached" message
 
