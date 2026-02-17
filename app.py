@@ -349,6 +349,8 @@ def initialize_all_agents():
             agents['customer'] = customer_agent
             clients['customer'] = customer_client
             clients['project'] = project_client
+            if customer_agent is None:
+                errors['customer'] = "Agent not found or inaccessible. Verify AGENT_RETAIL and Azure permissions."
         except Exception as e:
             agents['customer'] = None
             errors['customer'] = str(e)
@@ -358,6 +360,8 @@ def initialize_all_agents():
             orchestrator_agent, orchestrator_client = initialize_orchestrator_agent(clients.get('project'))
             agents['orchestrator'] = orchestrator_agent
             clients['orchestrator'] = orchestrator_client
+            if orchestrator_agent is None:
+                errors['orchestrator'] = "Agent not found or inaccessible. Verify AGENT_ORCHESTRATOR and Azure permissions."
         except Exception as e:
             agents['orchestrator'] = None
             errors['orchestrator'] = str(e)
@@ -367,6 +371,8 @@ def initialize_all_agents():
             mfg_agent, mfg_client = initialize_product_agent()
             agents['product'] = mfg_agent
             clients['product'] = mfg_client
+            if mfg_agent is None:
+                errors['product'] = "Agent not found or inaccessible. Verify AGENT_PRODUCT and Azure permissions."
         except Exception as e:
             agents['product'] = None
             errors['product'] = str(e)
@@ -376,6 +382,8 @@ def initialize_all_agents():
             insurance_agent, insurance_client = initialize_insurance_agent()
             agents['insurance'] = insurance_agent
             clients['insurance'] = insurance_client
+            if insurance_agent is None:
+                errors['insurance'] = "Agent not found or inaccessible. Verify AGENT_INSURANCE and Azure permissions."
         except Exception as e:
             agents['insurance'] = None
             errors['insurance'] = str(e)
