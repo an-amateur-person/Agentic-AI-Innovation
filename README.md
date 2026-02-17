@@ -37,6 +37,56 @@ An intelligent Streamlit application where customers interact with a customer-fa
    - Consulted for: costs, pricing, budget, revenue, profit, expenses, investments, ROI
    - Provides specialist input when insurance/financial topics are mentioned
 
+## 🔄 Architecture Flow
+
+```mermaid
+sequenceDiagram
+   autonumber
+   participant U as Customer (UI)
+   participant A as Streamlit App (app.py)
+   participant B as BuyBuddy Customer Agent
+   participant O as Orchestrator Agent
+   participant P as FridgeBuddy
+   participant I as InsuranceBuddy
+
+   U->>A: Send message
+   A->>A: Append user message to session history
+
+   A->>B: collect_customer_input_packet(user_input, history)
+   B->>B: Generate customer draft + state metadata
+   B-->>A: customer_intake_packet (JSON)
+
+   A->>O: orchestrate_customer_packet(packet)
+   O->>O: Validate state + routing_hint + iteration limits
+
+   alt Route = product_agent
+      O->>P: specialist_request (JSON)
+      P-->>O: product response (JSON)
+      O->>O: Simplify/sanitize to plain text
+   else Route = ergo_agent
+      O->>I: specialist_request (JSON)
+      I-->>O: insurance response (JSON)
+      O->>O: Simplify/sanitize to plain text
+   else Route = none
+      O->>O: Keep response in BuyBuddy-only path
+   end
+
+   O->>O: Build orchestrator_result (JSON)
+   Note over O: customer_response includes specialist summary text
+   O-->>A: orchestrator_result
+
+   A->>A: Store state/phase counters in session
+   A->>A: Do NOT render specialist messages directly
+   A-->>U: Show single BuyBuddy plain-text response
+
+   opt Final phase
+      U->>A: Generate proposal
+      A->>B: Build consolidated quotation
+      B-->>A: Quotation text
+      A-->>U: Downloadable PDF proposal
+   end
+```
+
 ## 🚀 Features
 
 - ✅ **Direct Customer Interaction** - Customers chat directly with Retail Agent
