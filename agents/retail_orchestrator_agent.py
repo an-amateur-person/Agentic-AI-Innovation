@@ -357,14 +357,10 @@ def _build_user_summary(base_text, specialist_responses):
         elif agent_name == "System":
             summary_parts.append(response_text)
 
-    if not summary_parts:
-        return base_message
+    if summary_parts:
+        return " ".join(summary_parts)
 
-    specialist_summary = " ".join(summary_parts)
-    if not base_message:
-        return specialist_summary
-
-    return f"{base_message}\n\n{specialist_summary}"
+    return "I consulted our specialists and prepared an updated recommendation."
 
 
 def orchestrate_customer_packet(
