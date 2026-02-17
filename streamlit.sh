@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
-PORT="${PORT:-80}"
+PORT="${WEBSITES_PORT:-${PORT:-8000}}"
 echo "Startup: PORT=${PORT}"
 
 if command -v ss >/dev/null 2>&1; then
     if ss -ltn | awk '{print $4}' | grep -q ":${PORT}$"; then
         echo "Startup: port ${PORT} is already in use."
-        if [ "${PORT}" != "80" ] && ! ss -ltn | awk '{print $4}' | grep -q ":80$"; then
-            PORT="80"
-            echo "Startup: falling back to PORT=${PORT}"
-        else
-            echo "Startup: active listeners:"
-            ss -ltn
-            exit 1
-        fi
+        echo "Startup: active listeners:"
+        ss -ltn
+        exit 1
     fi
 fi
 

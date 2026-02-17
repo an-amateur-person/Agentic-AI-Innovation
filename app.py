@@ -540,6 +540,10 @@ with st.sidebar:
             st.success(" | ".join(agent_icons))
         else:
             st.warning("No agents configured")
+            if init_errors:
+                with st.expander("Initialization details", expanded=False):
+                    for agent_key, error_msg in init_errors.items():
+                        st.markdown(f"- **{agent_key}**: {error_msg}")
     else:
         st.error("Initialization failed")
 
