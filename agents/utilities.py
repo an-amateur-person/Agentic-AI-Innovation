@@ -8,7 +8,12 @@ from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 
 def create_azure_credential(tenant_id=None):
     """Create Azure credential with cloud-first strategy and local fallback."""
+    is_app_service = bool(os.getenv("WEBSITE_SITE_NAME") or os.getenv("WEBSITE_INSTANCE_ID"))
     credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
+
+    if is_app_service:
+        return credential
+
     try:
         credential.get_token("https://management.azure.com/.default")
         return credential

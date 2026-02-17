@@ -19,6 +19,8 @@ from agents.insurance_agent import initialize_insurance_agent
 # Load environment variables from .env file
 load_dotenv(".env")
 
+IS_APP_SERVICE = bool(os.getenv("WEBSITE_SITE_NAME") or os.getenv("WEBSITE_INSTANCE_ID"))
+
 # Helper function to get icon (image or emoji fallback)
 def get_agent_icon(agent_name):
     """Get base64 encoded image for agent icon or return emoji fallback"""
@@ -370,7 +372,29 @@ def initialize_all_agents():
     
     return agents, clients, errors
 
-agents, clients, init_errors = initialize_all_agents()
+def get_agent_runtime(force_initialize=False):
+    if "agent_runtime" not in st.session_state:
+        st.session_state.agent_runtime = {
+            "agents": {},
+            "clients": {},
+            "errors": {},
+            "initialized": False,
+        }
+
+    runtime = st.session_state.agent_runtime
+    should_initialize = force_initialize or (not runtime["initialized"] and not IS_APP_SERVICE)
+
+    if should_initialize:
+        agents_local, clients_local, errors_local = initialize_all_agents()
+        runtime["agents"] = agents_local
+        runtime["clients"] = clients_local
+        runtime["errors"] = errors_local
+        runtime["initialized"] = True
+
+    return runtime["agents"], runtime["clients"], runtime["errors"], runtime["initialized"]
+
+
+agents, clients, init_errors, agents_initialized = get_agent_runtime()
 
 def determine_current_phase(conversation_history, last_state=None):
     """
@@ -473,7 +497,9 @@ with st.sidebar:
     
     # Agent Status - Compact
     st.subheader("🤖 Agents")
-    if 'main' not in init_errors:
+    if not agents_initialized:
+        st.info("Agents will initialize on first request.")
+    elif 'main' not in init_errors:
         agent_icons = []
         if agents.get('customer'):
             agent_icons.append("🛒 BuyBuddy (Customer)")
@@ -493,6 +519,11 @@ with st.sidebar:
 
 def generate_quotation():
     """Generate a product quotation after all agents collaborate to finalize the offer"""
+    global agents, clients, init_errors, agents_initialized
+
+    if not agents_initialized:
+        agents, clients, init_errors, agents_initialized = get_agent_runtime(force_initialize=True)
+
     if len(st.session_state.messages) <= 1:
         return None, "No conversation to generate quotation from. Start chatting with BuyBuddy first!"
     
@@ -615,6 +646,12 @@ def handle_customer_query(user_input, thinking_container):
         }
     
     try:
+        global agents, clients, init_errors, agents_initialized
+
+        if not agents_initialized:
+            add_thinking_step("🔄 Initializing agents...")
+            agents, clients, init_errors, agents_initialized = get_agent_runtime(force_initialize=True)
+
         if agents.get('customer'):
             add_thinking_step("🧾 BuyBuddy is collecting your requirements...")
 
