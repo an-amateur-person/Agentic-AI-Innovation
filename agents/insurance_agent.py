@@ -8,7 +8,7 @@ import json
 from .utilities import create_azure_credential
 
 # Load environment variables
-load_dotenv("../.env")
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=False)
 
 def initialize_insurance_agent():
     """Initialize the insurance agent"""

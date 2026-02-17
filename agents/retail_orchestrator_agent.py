@@ -18,7 +18,7 @@ from .utilities import (
 )
 
 
-load_dotenv("../.env")
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=False)
 
 
 def initialize_orchestrator_agent(project_client=None):

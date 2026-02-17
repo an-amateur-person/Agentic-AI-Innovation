@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from .utilities import create_azure_credential
 
 # Load environment variables
-load_dotenv("../.env")
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=False)
 
 def initialize_product_agent():
     """Initialize the product agent"""

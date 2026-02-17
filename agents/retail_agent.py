@@ -7,7 +7,7 @@ from azure.ai.projects import AIProjectClient
 from .utilities import create_azure_credential, parse_retail_state, strip_retail_metadata, extract_requirements
 
 
-load_dotenv("../.env")
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=False)
 
 
 def initialize_customer_facing_agent():

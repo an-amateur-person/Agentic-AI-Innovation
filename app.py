@@ -17,9 +17,22 @@ from agents.product_agent import initialize_product_agent
 from agents.insurance_agent import initialize_insurance_agent
 
 # Load environment variables from .env file
-load_dotenv(".env")
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
 
 IS_APP_SERVICE = bool(os.getenv("WEBSITE_SITE_NAME") or os.getenv("WEBSITE_INSTANCE_ID"))
+
+REQUIRED_ENV_VARS = [
+    "AZURE_AIPROJECT_ENDPOINT",
+    "AZURE_TENANT_ID",
+    "AGENT_RETAIL",
+    "AGENT_ORCHESTRATOR",
+    "AGENT_PRODUCT",
+    "AGENT_INSURANCE",
+]
+
+
+def get_missing_required_env_vars():
+    return [key for key in REQUIRED_ENV_VARS if not os.getenv(key)]
 
 # Helper function to get icon (image or emoji fallback)
 def get_agent_icon(agent_name):
@@ -382,6 +395,15 @@ def get_agent_runtime(force_initialize=False):
         }
 
     runtime = st.session_state.agent_runtime
+    missing_env_vars = get_missing_required_env_vars()
+
+    if missing_env_vars:
+        runtime["errors"] = {
+            "env": "Missing required environment variables: " + ", ".join(missing_env_vars)
+        }
+        runtime["initialized"] = False
+        return runtime["agents"], runtime["clients"], runtime["errors"], runtime["initialized"]
+
     should_initialize = force_initialize or (not runtime["initialized"] and not IS_APP_SERVICE)
 
     if should_initialize:
@@ -497,6 +519,10 @@ with st.sidebar:
     
     # Agent Status - Compact
     st.subheader("🤖 Agents")
+    missing_env_vars = get_missing_required_env_vars()
+    if missing_env_vars:
+        st.error("Missing App Settings: " + ", ".join(missing_env_vars))
+
     if not agents_initialized:
         st.info("Agents will initialize on first request.")
     elif 'main' not in init_errors:
@@ -520,6 +546,10 @@ with st.sidebar:
 def generate_quotation():
     """Generate a product quotation after all agents collaborate to finalize the offer"""
     global agents, clients, init_errors, agents_initialized
+
+    missing_env_vars = get_missing_required_env_vars()
+    if missing_env_vars:
+        return None, "Missing required App Settings: " + ", ".join(missing_env_vars)
 
     if not agents_initialized:
         agents, clients, init_errors, agents_initialized = get_agent_runtime(force_initialize=True)
@@ -647,6 +677,16 @@ def handle_customer_query(user_input, thinking_container):
     
     try:
         global agents, clients, init_errors, agents_initialized
+
+        missing_env_vars = get_missing_required_env_vars()
+        if missing_env_vars:
+            add_thinking_step("⚠️ Missing required App Settings")
+            return {
+                'thinking': "\n\n".join(thinking_steps),
+                'main_response': "Configuration incomplete. Missing App Settings: " + ", ".join(missing_env_vars),
+                'inventory_check': None,
+                'specialist_responses': []
+            }
 
         if not agents_initialized:
             add_thinking_step("🔄 Initializing agents...")
