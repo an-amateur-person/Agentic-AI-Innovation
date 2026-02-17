@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from dotenv import load_dotenv
 from azure.ai.projects import AIProjectClient
@@ -77,9 +78,42 @@ def _extract_json_dict(raw_response):
         if isinstance(parsed, dict):
             return parsed
     except Exception:
-        return None
+        pass
+
+    first_brace = response_text.find("{")
+    last_brace = response_text.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = response_text[first_brace:last_brace + 1].strip()
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return None
 
     return None
+
+
+def _sanitize_customer_response(text):
+    message = str(text or "").strip()
+    if not message:
+        return ""
+
+    message = re.sub(r"\s+\d+\s*$", "", message).strip()
+
+    has_large_json_blob = (
+        ("{" in message and "}" in message and len(message) > 250)
+        or "recommended_models" in message
+        or "coverage_options" in message
+    )
+
+    if has_large_json_blob:
+        prefix = message.split("Product update:")[0].strip()
+        if prefix:
+            return prefix
+        return "I reviewed your request and coordinated with our specialists."
+
+    return message
 
 
 def _normalize_specialist_entries(entries):
@@ -140,7 +174,7 @@ def _build_agent_result_payload(parsed_result, fallback_state):
     if not isinstance(inventory_check, dict):
         inventory_check = None
 
-    customer_response = parsed_result.get("customer_response")
+    customer_response = _sanitize_customer_response(parsed_result.get("customer_response"))
     if not customer_response:
         customer_response = "I’ve reviewed your request and coordinated with specialists."
     customer_response = _build_user_summary(customer_response, specialist_responses)
@@ -162,7 +196,13 @@ def _build_agent_result_payload(parsed_result, fallback_state):
 def _simplify_fridge_response(raw_response):
     parsed = _extract_json_dict(raw_response)
     if not parsed:
-        return str(raw_response)
+        response_text = str(raw_response or "").strip()
+        if (
+            "recommended_models" in response_text
+            or ("{" in response_text and "}" in response_text and len(response_text) > 180)
+        ):
+            return "I reviewed FridgeBuddy results and shortlisted suitable models. I can narrow this to one best option based on your preferred style."
+        return response_text
 
     recommendations = parsed.get("recommended_models", [])
     reason = parsed.get("reasoning") or parsed.get("summary") or parsed.get("notes")
@@ -199,7 +239,13 @@ def _simplify_fridge_response(raw_response):
 def _simplify_insurance_response(raw_response):
     parsed = _extract_json_dict(raw_response)
     if not parsed:
-        return str(raw_response)
+        response_text = str(raw_response or "").strip()
+        if (
+            "coverage_options" in response_text
+            or ("{" in response_text and "}" in response_text and len(response_text) > 180)
+        ):
+            return "InsuranceBuddy completed evaluation. I can share the best coverage option and next step."
+        return response_text
 
     status = str(parsed.get("status", "")).lower()
     if status == "incomplete":
