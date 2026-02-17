@@ -89,8 +89,8 @@ sequenceDiagram
 
 ## 🚀 Features
 
-- ✅ **Direct Customer Interaction** - Customers chat directly with Retail Agent
-- ✅ **Smart Coordination** - Retail Agent automatically consults specialists when needed
+- ✅ **Direct Customer Interaction** - Customers chat directly with BuyBuddy
+- ✅ **Smart Coordination** - BuyBuddy orchestrates specialist consultations when needed
 - ✅ **Context-Aware** - Maintains conversation history for better responses
 - ✅ **Transparent Process** - See when and why specialists are consulted
 - ✅ **Proposal Generation** - Create PDF proposals from conversations
@@ -141,9 +141,10 @@ sequenceDiagram
    - `AZURE_SUBSCRIPTION_ID` - Your Azure subscription ID
    - `AZURE_AIPROJECT_ENDPOINT` - Your Azure AI project endpoint
    - `AZURE_LOCATION` - Azure region (e.g., swedencentral)
-   - `AGENT_RETAIL` - Retail Agent name (primary)
-   - `AGENT_PRODUCT` - Product Agent name (specialist)
-   - `AGENT_INSURANCE` - Insurance Agent name (specialist)
+   - `AGENT_RETAIL` - BuyBuddy customer-facing agent name
+   - `AGENT_ORCHESTRATOR` - BuyBuddy orchestrator agent name
+   - `AGENT_PRODUCT` - Product specialist agent name
+   - `AGENT_INSURANCE` - Insurance specialist agent name
 
 ## 🏃 Running the Application
 
@@ -219,35 +220,34 @@ Agentic-AI-Innovation/
 
 ### Query Flow
 
-1. **Customer asks a question** → Retail Agent receives it
-2. **Analysis** → Retail Agent analyzes if specialist input is needed
+1. **Customer asks a question** → BuyBuddy receives it
+2. **Analysis** → BuyBuddy prepares intake and routes via orchestrator when needed
 3. **Coordination** → Consults Product/Insurance agents if relevant topics detected
-4. **Response** → Retail Agent synthesizes all information into comprehensive answer
+4. **Response** → BuyBuddy returns a single summarized customer response
 
 ### Specialist Detection
 
-Retail Agent automatically detects when to consult specialists based on keywords:
+BuyBuddy and the orchestrator detect when to consult specialists based on context:
 - **Product**: production, inventory, supply, operations, capacity, assembly
 - **Insurance**: cost, price, budget, revenue, expense, investment, ROI
 
 ## 📊 Agent Status
 
 The sidebar displays real-time status of all agents:
-- ✅ Green: Agent initialized successfully (Retail Agent is required)
+- ✅ Green: Agent initialized successfully (BuyBuddy customer + orchestrator are primary)
 - ⚠️ Yellow: Specialist not configured (system still works, limited capabilities)
 - ❌ Red: Initialization error
 
 **Agent Roles:**
-- **Retail Agent (Primary)** - Must be configured for system to work
+- **BuyBuddy Customer + Orchestrator (Primary)** - Required for full system behavior
 - **Product & Insurance (Specialists)** - Optional, consulted when needed
 
-## 🎯 Key Changes from Previous Version
+## 🎯 Current Design Notes
 
-- ❌ **Removed**: Analysis Agent / Orchestrator - no longer needed
-- ✅ **Simplified**: Direct customer → Retail Agent interaction
-- ✅ **Enhanced**: Retail Agent now coordinates with specialists automatically
-- ✅ **Improved**: Single conversation thread, better context retention
-- ✅ **Streamlined**: Reduced complexity, faster responses
+- ✅ **Split architecture**: BuyBuddy customer-facing + BuyBuddy orchestrator
+- ✅ **JSON inter-agent protocol** for internal coordination
+- ✅ **Single customer-facing response** in UI (specialists are not shown directly)
+- ✅ **Context retention** with state + iteration tracking
 
 ## 🤝 Contributing
 
@@ -283,8 +283,9 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
 - Fill in all required values
 - Never commit `.env` to git (it's in .gitignore)
 
-**Retail Agent not responding:**
+**BuyBuddy/agents not responding:**
 - Verify `AGENT_RETAIL` is correctly set in `.env`
+- Verify `AGENT_ORCHESTRATOR` is correctly set in `.env`
 - Check that the agent exists in your Azure AI project
 - Specialist agents are optional - system works without them but with reduced capabilities
 
