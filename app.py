@@ -507,8 +507,6 @@ with st.sidebar:
     
     # Agent Status - Compact
     st.subheader("🤖 Agents")
-    if st.button("Run diagnostics", use_container_width=True):
-        agents, clients, init_errors, agents_initialized = get_agent_runtime(force_initialize=True)
 
     missing_env_vars = get_missing_required_env_vars()
     if missing_env_vars:
@@ -533,11 +531,6 @@ with st.sidebar:
             st.warning("No agents configured")
     else:
         st.error("Initialization failed")
-
-    if init_errors:
-        with st.expander("Initialization details", expanded=False):
-            for agent_key, error_msg in init_errors.items():
-                st.markdown(f"- **{agent_key}**: {error_msg}")
 
 def generate_quotation():
     """Generate a product quotation after all agents collaborate to finalize the offer"""
