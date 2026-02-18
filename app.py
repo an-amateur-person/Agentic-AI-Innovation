@@ -272,11 +272,11 @@ else:
 st.markdown(f'''
 <div class="title-with-icon">
     {icon_html}
-    <h1>Assistant - Your Personal Assistant</h1>
+    <h1>BuyBuddy - Your personal assistant</h1>
 </div>
 ''', unsafe_allow_html=True)
 
-st.write("Welcome! I'm your assistant. Ask me anything, and I'll coordinate with specialized teams when needed.")
+st.write("Welcome! I'm BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
 
 # Initialize all agents
 @st.cache_resource
@@ -456,11 +456,11 @@ with st.sidebar:
     phase_status = []
     for num, title in phases:
         if num < current_phase:
-            phase_status.append(f"Done {title}")
+            phase_status.append(f"✅ {title}")
         elif num == current_phase:
-            phase_status.append(f"Now **{title}**")
+            phase_status.append(f"🔵 **{title}**")
         else:
-            phase_status.append(f"Next {title}")
+            phase_status.append(f"⚪ {title}")
     
     st.markdown(" → ".join(phase_status))
     
@@ -478,13 +478,13 @@ with st.sidebar:
     elif 'main' not in init_errors:
         agent_icons = []
         if agents.get('customer'):
-            agent_icons.append(get_agent_label_with_icon("Assistant", "assistant"))
+            agent_icons.append(get_agent_label_with_icon("BuyBuddy", "assistant"))
         if agents.get('orchestrator'):
             agent_icons.append(get_agent_label_with_icon("Orchestrator", "orchestrator"))
         if agents.get('product'):
-            agent_icons.append(get_agent_label_with_icon("Product Specialist", "product_specialist"))
+            agent_icons.append(get_agent_label_with_icon("FridgeBuddy", "product_specialist"))
         if agents.get('insurance'):
-            agent_icons.append(get_agent_label_with_icon("Insurance Specialist", "insurance_specialist"))
+            agent_icons.append(get_agent_label_with_icon("InsuranceBuddy", "insurance_specialist"))
         
         if agent_icons:
             st.markdown(" | ".join(agent_icons), unsafe_allow_html=True)
@@ -731,8 +731,8 @@ def handle_customer_query(user_input, thinking_container):
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "Assistant",
-        "content": "Hello! I'm your assistant. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
+        "sender": "BuyBuddy",
+        "content": "Hello! I'm BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": get_agent_icon('retail_agent')
     }]
@@ -741,8 +741,8 @@ if "messages" not in st.session_state:
 if st.sidebar.button("Reset Chat"):
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "Assistant",
-        "content": "Hello! I'm your assistant. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
+        "sender": "BuyBuddy",
+        "content": "Hello! I'm BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": get_agent_icon('retail_agent')
     }]
@@ -801,13 +801,13 @@ for msg in st.session_state.messages:
     # Determine CSS class based on sender
     if msg["role"] == "user":
         css_class = "user-message"
-    elif "Assistant" in sender:
+    elif "Assistant" in sender or "BuyBuddy" in sender:
         css_class = "retail-message"
         icon = icon or get_agent_icon("assistant")
-    elif "Product Specialist" in sender:
+    elif "Product Specialist" in sender or "FridgeBuddy" in sender:
         css_class = "product-message"
         icon = get_agent_icon("product_specialist")
-    elif "Insurance Specialist" in sender:
+    elif "Insurance Specialist" in sender or "InsuranceBuddy" in sender:
         css_class = "insurance-message"
         icon = get_agent_icon("insurance_specialist")
     else:
@@ -948,8 +948,10 @@ for msg in st.session_state.messages:
                 specialist_css = "system-message"
                 specialist_icon = ""
             elif "product specialist" in str(specialist_sender).lower():
+                specialist_sender = "FridgeBuddy"
                 specialist_icon = get_agent_icon("product_specialist")
             elif "insurance specialist" in str(specialist_sender).lower():
+                specialist_sender = "InsuranceBuddy"
                 specialist_icon = get_agent_icon("insurance_specialist")
 
             if not specialist_content:
@@ -1005,7 +1007,7 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
     response_time = datetime.now().strftime("%I:%M %p")
     agent_message = {
         "role": "agent",
-        "sender": "Assistant",
+        "sender": "BuyBuddy",
         "content": result['main_response'],
         "timestamp": response_time,
         "icon": get_agent_icon('retail_agent'),
