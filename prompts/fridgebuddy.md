@@ -95,6 +95,13 @@ Return **structured JSON** with this format:
 - Never return only routing/forwarding instructions.
 - If inventory pre-check context is provided, reference it and produce model-level availability or explicit no-match.
 
+### Structured Data Integrity (MANDATORY)
+- Do not fabricate model numbers, dimensions, capacities, prices, or availability.
+- If a field is unavailable in the database, return `null` (or omit optional field) rather than guessing.
+- Keep numeric/currency values exact as sourced (do not truncate digits, remove leading digits, or re-scale values).
+- Use consistent money format in output strings (e.g., `EUR 1,049` or `1049 €`) and keep the same style within one response.
+- If no fridge-freezer model matches the request, return `recommended_models: []` and explain why instead of returning a fridge-only model as a match.
+
 ---
 
 ## Response Guidelines

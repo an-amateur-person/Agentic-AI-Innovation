@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import html
-import re
 from dotenv import load_dotenv
 from datetime import datetime
 from io import BytesIO
@@ -35,109 +34,52 @@ def get_missing_required_env_vars():
     return [key for key in REQUIRED_ENV_VARS if not os.getenv(key)]
 
 
-def _extract_inventory_structured_info(details_text):
-    details = str(details_text or "")
-    details_lower = details.lower()
+def _safe_text(value):
+    return str(value).strip() if value is not None else ""
 
-    brands = []
-    for brand in ["Bosch", "Siemens", "Neff", "Constructa", "Liebherr"]:
-        if brand.lower() in details_lower:
-            brands.append(brand)
 
-    model_matches = re.findall(
-        r"\b(Bosch|Siemens|Neff|Constructa|Liebherr)\s+([A-Za-z]{2,8}[A-Za-z0-9/-]{2,})\b",
-        details,
-        re.IGNORECASE,
-    )
-    model_candidates = []
-    for brand, model in model_matches:
-        candidate = f"{brand.title()} {model.upper()}"
-        if candidate not in model_candidates:
-            model_candidates.append(candidate)
-
-    raw_segments = [seg.strip(" •-\n\t") for seg in re.split(r"\n|;", details) if seg.strip()]
-    parsed_model_rows = []
-    for segment in raw_segments:
-        if not re.search(r"\b(bosch|siemens|neff|constructa|liebherr)\b", segment, re.IGNORECASE):
-            continue
-
-        model_match = re.search(
-            r"\b(Bosch|Siemens|Neff|Constructa|Liebherr)\s+([A-Za-z]{2,8}[A-Za-z0-9/-]{2,})\b",
-            segment,
-            re.IGNORECASE,
-        )
-        if not model_match:
-            continue
-
-        brand = model_match.group(1).title()
-        model = model_match.group(2).upper()
-
-        dimension_match = re.search(
-            r"(\d{2,3}(?:[\.,]\d)?\s*[x×]\s*\d{2,3}(?:[\.,]\d)?\s*[x×]\s*\d{2,3}(?:[\.,]\d)?\s*cm)",
-            segment,
-            re.IGNORECASE,
-        )
-        niche_match = re.search(r"(niche\s*:?\s*\d{2,3}(?:[\.,]\d)?\s*cm)", segment, re.IGNORECASE)
-        capacity_match = re.search(r"(\d{2,3}\s*l)\b", segment, re.IGNORECASE)
-        energy_match = re.search(r"\b([A-F])\b\s*(?:energy|class|label)?", segment, re.IGNORECASE)
-        noise_match = re.search(r"(\d{2}\s*dB\(?A?\)?)", segment, re.IGNORECASE)
-        price_match = re.search(r"((?:~|ca\.?\s*)?\d{3,4}(?:[\.,]\d{2})?\s*€)", segment, re.IGNORECASE)
-
-        parsed_model_rows.append(
-            {
-                "model_name": f"{brand} {model}",
-                "dimensions": dimension_match.group(1) if dimension_match else None,
-                "niche": niche_match.group(1) if niche_match else None,
-                "capacity": capacity_match.group(1) if capacity_match else None,
-                "energy_class": energy_match.group(1).upper() if energy_match else None,
-                "noise": noise_match.group(1) if noise_match else None,
-                "price": price_match.group(1) if price_match else None,
-            }
-        )
-
-    unique_rows = []
-    seen_models = set()
-    for row in parsed_model_rows:
-        model_key = row.get("model_name")
-        if not model_key or model_key in seen_models:
-            continue
-        seen_models.add(model_key)
-        unique_rows.append(row)
-
-    price_band = None
-    price_patterns = [
-        r"\b\d{3,4}\s*[–-]\s*\d{3,4}\s*€",
-        r"~\s*\d{3,4}\s*€",
-        r"\b\d{3,4}\s*€\b",
-    ]
-    for pattern in price_patterns:
-        match = re.search(pattern, details)
-        if match:
-            price_band = match.group(0)
-            break
-
-    niche_match = re.search(r"(?:height|heights?|niche heights?)\s*(?:around|roughly)?\s*([\d\s~–\-]{3,20}cm)", details_lower)
-    niche_range = niche_match.group(1) if niche_match else None
-
-    capacity_match = re.search(r"(\d{2,3}\s*[–-]\s*\d{2,3}\s*l)", details_lower)
-    capacity_range = capacity_match.group(1) if capacity_match else None
-
-    noise_match = re.search(r"(\d{2}\s*[–-]\s*\d{2}\s*dB\(?a?\)?)", details, re.IGNORECASE)
-    noise_range = noise_match.group(1) if noise_match else None
-
-    energy_match = re.search(r"energy\s*(?:class|classes|labels?)\s*\(?\s*([A-F]\s*[–-]\s*[A-F]|[A-F])", details, re.IGNORECASE)
-    energy_range = energy_match.group(1).replace(" ", "") if energy_match else None
-
-    return {
-        "brands": brands,
-        "model_candidates": model_candidates,
-        "parsed_model_rows": unique_rows,
-        "price_band": price_band,
-        "niche_range": niche_range,
-        "capacity_range": capacity_range,
-        "noise_range": noise_range,
-        "energy_range": energy_range,
+def _build_inventory_profile_from_options(internal_options):
+    profile = {
+        "brands": [],
+        "energy_classes": [],
+        "niche_values": [],
+        "capacity_values": [],
+        "noise_values": [],
+        "price_values": [],
     }
+
+    if not isinstance(internal_options, list):
+        return profile
+
+    brands_seen = set()
+    for option in internal_options:
+        if not isinstance(option, dict):
+            continue
+
+        model_name = _safe_text(option.get("model_name") or option.get("name"))
+        if model_name:
+            maybe_brand = model_name.split(" ")[0].strip()
+            if maybe_brand and maybe_brand not in brands_seen:
+                brands_seen.add(maybe_brand)
+                profile["brands"].append(maybe_brand)
+
+        for source_key, target_key in [
+            ("energy_class", "energy_classes"),
+            ("energy", "energy_classes"),
+            ("niche", "niche_values"),
+            ("niche_height", "niche_values"),
+            ("capacity", "capacity_values"),
+            ("volume", "capacity_values"),
+            ("noise", "noise_values"),
+            ("noise_level", "noise_values"),
+            ("price", "price_values"),
+            ("base_price", "price_values"),
+        ]:
+            value = _safe_text(option.get(source_key))
+            if value and value not in profile[target_key]:
+                profile[target_key].append(value)
+
+    return profile
 
 # Helper function to get icon (image or emoji fallback)
 def get_agent_icon(agent_name):
@@ -871,7 +813,7 @@ for msg in st.session_state.messages:
             internal_options = []
 
         inventory_details_text = str(inventory.get("details", "Checked our internal database for available products."))
-        parsed_info = _extract_inventory_structured_info(inventory_details_text)
+        profile_from_options = _build_inventory_profile_from_options(internal_options)
 
         options_lines = []
         for option in internal_options[:4]:
@@ -905,33 +847,6 @@ for msg in st.session_state.messages:
                 option_line += " — " + " | ".join([str(part) for part in detail_parts])
             options_lines.append(option_line)
 
-        if not options_lines and parsed_info.get("parsed_model_rows"):
-            for row in parsed_info.get("parsed_model_rows", [])[:6]:
-                model_name = row.get("model_name") or "Internal model"
-                detail_parts = []
-                if row.get("dimensions"):
-                    detail_parts.append(f"Size: {row['dimensions']}")
-                if row.get("niche"):
-                    detail_parts.append(f"Niche: {row['niche']}")
-                if row.get("capacity"):
-                    detail_parts.append(f"Capacity: {row['capacity']}")
-                if row.get("energy_class"):
-                    detail_parts.append(f"Energy: {row['energy_class']}")
-                if row.get("noise"):
-                    detail_parts.append(f"Noise: {row['noise']}")
-                if row.get("price"):
-                    detail_parts.append(f"Price: {row['price']}")
-                option_line = f"• {model_name}"
-                if detail_parts:
-                    option_line += " — " + " | ".join(detail_parts)
-                options_lines.append(option_line)
-
-        if not options_lines and parsed_info.get("model_candidates"):
-            options_lines = [f"• {item}" for item in parsed_info.get("model_candidates", [])[:6]]
-
-        if not options_lines and parsed_info.get("brands"):
-            options_lines = [f"• {brand} built-in range" for brand in parsed_info.get("brands", [])]
-
         no_match_reason = str(inventory.get("no_match_reason", "")).strip()
         internal_match_found = inventory.get("internal_match_found") if isinstance(inventory, dict) else None
 
@@ -940,18 +855,32 @@ for msg in st.session_state.messages:
             "No internal match found" if internal_match_found is False else "Internal match status pending"
         )
         profile_lines.append(f"• Match status: {match_status}")
-        if parsed_info.get("price_band"):
-            profile_lines.append(f"• Price band observed: {parsed_info['price_band']}")
-        if parsed_info.get("energy_range"):
-            profile_lines.append(f"• Energy class range: {parsed_info['energy_range']}")
-        if parsed_info.get("niche_range"):
-            profile_lines.append(f"• Niche height range: {parsed_info['niche_range']}")
-        if parsed_info.get("capacity_range"):
-            profile_lines.append(f"• Capacity range: {parsed_info['capacity_range']}")
-        if parsed_info.get("noise_range"):
-            profile_lines.append(f"• Noise range: {parsed_info['noise_range']}")
-        if parsed_info.get("brands"):
-            profile_lines.append(f"• Candidate brands: {', '.join(parsed_info['brands'])}")
+        if internal_options:
+            profile_lines.append(f"• Structured internal options: {len(internal_options)}")
+        if profile_from_options.get("price_values"):
+            profile_lines.append(
+                f"• Price points: {', '.join(profile_from_options['price_values'][:4])}"
+            )
+        if profile_from_options.get("energy_classes"):
+            profile_lines.append(
+                f"• Energy classes: {', '.join(profile_from_options['energy_classes'][:4])}"
+            )
+        if profile_from_options.get("niche_values"):
+            profile_lines.append(
+                f"• Niche values: {', '.join(profile_from_options['niche_values'][:3])}"
+            )
+        if profile_from_options.get("capacity_values"):
+            profile_lines.append(
+                f"• Capacity values: {', '.join(profile_from_options['capacity_values'][:3])}"
+            )
+        if profile_from_options.get("noise_values"):
+            profile_lines.append(
+                f"• Noise values: {', '.join(profile_from_options['noise_values'][:3])}"
+            )
+        if profile_from_options.get("brands"):
+            profile_lines.append(
+                f"• Candidate brands: {', '.join(profile_from_options['brands'][:5])}"
+            )
 
         profile_html = "<strong>Inventory profile:</strong><br/>" + "<br/>".join([html.escape(line) for line in profile_lines])
 

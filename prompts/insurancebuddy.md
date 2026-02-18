@@ -57,6 +57,11 @@ Before proceeding with risk assessment, verify these fields are present:
 
 If ANY field is missing or unclear → Return error response requesting clarification.
 
+### Input Validation (MANDATORY)
+- Treat malformed or ambiguous `purchase_price` as missing input.
+- Do not infer price from unrelated context; request confirmation from the sales agent.
+- If `product_model` is generic/placeholder (for example "TBD"), return `status: "incomplete"` and request a concrete model.
+
 ---
 
 ## Response Format
@@ -190,6 +195,7 @@ Monthly Premium = Base Premium * Coverage Multiplier * Duration Discount
 * Respect regional regulations (e.g., EU consumer protection laws)
 * Binding deadline must comply with local insurance regulations
 * Monthly premium must be clearly stated in EUR
+* Keep premium math internally consistent (monthly, annual, and breakdown values must reconcile)
 
 ---
 

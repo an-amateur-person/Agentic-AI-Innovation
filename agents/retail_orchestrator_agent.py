@@ -493,6 +493,20 @@ def _has_customer_confirmed_specialist_routing(conversation_history):
     if not text:
         return False
 
+    normalized_text = re.sub(r"\s+", " ", text).strip()
+
+    explicit_fridgebuddy_patterns = [
+        r"\bfridge\s*buddy\b",
+        r"\bfridgebuddy\b",
+        r"\bfrudgebuddy\b",
+        r"\brefer\s+to\s+fridge\s*buddy\b",
+        r"\broute\s+to\s+fridge\s*buddy\b",
+        r"\bask\s+fridge\s*buddy\b",
+        r"\bcontact\s+fridge\s*buddy\b",
+    ]
+    if any(re.search(pattern, normalized_text, re.IGNORECASE) for pattern in explicit_fridgebuddy_patterns):
+        return True
+
     confirmation_tokens = [
         "yes, route",
         "yes route",
@@ -509,7 +523,7 @@ def _has_customer_confirmed_specialist_routing(conversation_history):
         "ok to route",
         "confirm routing",
     ]
-    return any(token in text for token in confirmation_tokens)
+    return any(token in normalized_text for token in confirmation_tokens)
 
 
 def _has_failed_internal_option_agreement(state, inventory_check, conversation_history):
@@ -753,6 +767,11 @@ def orchestrate_customer_packet(
                 if effective_routing not in {"product_agent", "ergo_agent"}:
                     effective_routing = inferred_routing
 
+                explicit_product_escalation = _has_customer_confirmed_specialist_routing(conversation_history)
+                if explicit_product_escalation and product_agent:
+                    effective_routing = "product_agent"
+                    result_payload["routing"] = "product_agent"
+
                 should_require_inventory = (
                     effective_routing == "product_agent"
                     or _has_product_specialist_response(result_payload.get("specialist_responses", []))
@@ -917,19 +936,23 @@ def orchestrate_customer_packet(
     user_input_lower = str(user_input or "").lower()
 
     routing = str(routing or "none").lower()
+    explicit_product_escalation = _has_customer_confirmed_specialist_routing(conversation_history)
+
     if routing == "none":
         explicit_product_request = any(
             term in user_input_lower
             for term in [
                 "fridgebuddy",
+                "fridge buddy",
                 "product_agent",
                 "product agent",
                 "liebherr specialist",
                 "refer to product",
                 "refer to fridgebuddy",
+                "refer to fridge buddy",
             ]
         )
-        if explicit_product_request:
+        if explicit_product_request or explicit_product_escalation:
             routing = "product_agent"
 
         product_status = state.get("product_status", "collecting")

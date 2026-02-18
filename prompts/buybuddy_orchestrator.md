@@ -70,6 +70,17 @@ Expected shape:
   - `insurance_agent_calls <= 3`
 - If routing should not proceed, set `routing: "none"` and explain via `customer_response`.
 
+### Anti-Loop Policy (MANDATORY)
+- Do not return the same defer-style system message in consecutive turns when customer intent changed.
+- If the latest user turn is explicit escalation intent, do not return a defer response for that turn.
+- Prefer forward progress over repeated clarification once key requirements are already known.
+
+### Explicit Escalation Interpretation (MANDATORY)
+- Treat user phrases as explicit FridgeBuddy consent even if wording is informal, spaced, or misspelled.
+- Examples to interpret as explicit escalation include: `fridgebuddy`, `fridge buddy`, `refer to fridge buddy`, `route to fridge buddy`, `ask fridge buddy`, `contact fridge buddy`, and close typo variants (for example `frudgebuddy`).
+- If explicit escalation is detected in the latest user turn, prefer `routing: "product_agent"` for that turn even when internal options exist.
+- On explicit escalation turns, set `specialist_responses` to include FridgeBuddy output when available instead of only `System` guidance.
+
 ## Specialist Response Policy
 When specialist insights are available:
 - Keep full specialist response content in `specialist_responses[].response`.
@@ -125,7 +136,15 @@ Return only JSON with this shape:
 - Prefer internal knowledge-base model recommendations first; use FridgeBuddy as fallback only.
 - `inventory_check` must explicitly include either internal options (`internal_options`) or a no-match reason (`no_match_reason`).
 - If internal options are available, keep routing as `none` unless the customer explicitly asks to refer/escalate to FridgeBuddy.
+- Do not rely on free-text keyword hints in `details` to represent products. Return product candidates as structured objects in `internal_options`.
+- For each option in `internal_options`, include as many explicit fields as available: `model_name`, `model_number`, `dimensions`, `niche`, `capacity`, `energy_class`, `noise`, `price`, `availability`.
+- Use `details` only for a short narrative summary; keep model-level facts in structured fields.
+- Keep field consistency:
+  - If `internal_match_found` is `true`, provide at least 1 `internal_options` item.
+  - If `internal_match_found` is `false`, provide `no_match_reason` and allow escalation.
+  - Avoid `internal_match_found: null` when sufficient evidence exists to decide true/false.
 
 ## Summary Generation Rule
 - `customer_response` must be concise, user-safe, and mention specialist consultation when applicable.
 - `customer_response` should be natural and flexible (not templated/rigid phrasing).
+- Avoid repeating the same stock sentence across turns; vary wording while preserving the same policy meaning.
