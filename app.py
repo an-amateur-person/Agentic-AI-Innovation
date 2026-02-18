@@ -615,12 +615,12 @@ def handle_customer_query(user_input, thinking_container):
     add_thinking_step("Assistant is analyzing your query...")
     
     # Check iteration limits
-    if st.session_state.iteration_counts['customer_clarifications'] >= 10:
-        add_thinking_step("Maximum assistant conversation iterations reached (10/10)")
+    if st.session_state.iteration_counts['customer_clarifications'] >= 15:
+        add_thinking_step("Maximum assistant conversation iterations reached (15/15)")
         add_thinking_step("Please reset chat to start a new conversation.")
         return {
             'thinking': "\n\n".join(thinking_steps),
-            'main_response': "I have reached the maximum of 10 conversation iterations for this session. Please click 'Reset Chat' to continue with a new request.",
+            'main_response': "I have reached the maximum of 15 conversation iterations for this session. Please click 'Reset Chat' to continue with a new request.",
             'inventory_check': None,
             'specialist_responses': []
         }
