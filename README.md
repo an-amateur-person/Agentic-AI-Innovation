@@ -74,7 +74,7 @@ sequenceDiagram
    end
 
    O->>O: Build orchestrator_result (JSON)
-   Note over O: customer_response is concise; details stay in inventory/specialist blocks
+   Note over O: customer_response is concise and details stay in inventory and specialist blocks
    O-->>A: orchestrator_result
 
    A->>A: Store state/phase counters in session
