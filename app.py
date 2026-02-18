@@ -253,7 +253,7 @@ else:
 st.markdown(f'''
 <div class="title-with-icon">
     {icon_html}
-    <h1>BuyBuddy - Your Personal Customer Service</h1>
+    <h1>BuyBuddy - Your Personal Assistant</h1>
 </div>
 ''', unsafe_allow_html=True)
 
