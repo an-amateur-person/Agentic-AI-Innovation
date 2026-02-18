@@ -31,12 +31,12 @@ An intelligent Streamlit application where customers interact with a customer-fa
 ### Specialist Agents (Support Teams)
 
 1. **Product Agent** 🏭
-   - Consulted for: production, assembly, inventory, supply chain, factory processes, capacity
-   - Provides specialist input when product topics are mentioned
+   - Consulted for: fridge and fridge-freezer model recommendations, specs, pricing, compatibility, availability
+   - Provides specialist product input when internal inventory cannot fully satisfy the request or user explicitly asks
 
 2. **Insurance Agent** 💰
-   - Consulted for: costs, pricing, budget, revenue, profit, expenses, investments, ROI
-   - Provides specialist input when insurance/financial topics are mentioned
+   - Consulted for: appliance protection plans, premium calculation, eligibility, and coverage options
+   - Provides specialist insurance input after product agreement / insurance phase
 
 ## 🔄 Architecture Flow
 
@@ -74,7 +74,7 @@ sequenceDiagram
    end
 
    O->>O: Build orchestrator_result (JSON)
-   Note over O: customer_response includes specialist summary text
+   Note over O: customer_response is concise; details stay in inventory/specialist blocks
    O-->>A: orchestrator_result
 
    A->>A: Store state/phase counters in session
@@ -191,33 +191,33 @@ Agentic-AI-Innovation/
 **Note:** 
 - `.env` contains your actual credentials and is excluded from git
 - Inter-agent exchange between BuyBuddy layers and specialists is JSON-based
-- All hardcoded values have been removed - everything uses environment variables
+- Runtime configuration uses environment variables for endpoints/agent names; customer-facing copy may still include fixed default text.
 
 ## 💡 Usage Examples
 
-**Retail Inquiry:**
+**Initial Intake:**
 ```
-"Tell me about the features of your latest product"
+"fridge"
 ```
-→ Retail Agent responds directly
+→ BuyBuddy asks focused clarifying questions (region, budget, type)
 
-**Product Question:**
+**Inventory-First Product Search:**
 ```
-"What's the production timeline and capacity for bulk orders?"
+"looking for a built-in fridge-freezer in munich, budget around 1000"
 ```
-→ Retail Agent consults Product specialist and provides comprehensive answer
+→ Orchestrator runs internal inventory check and returns structured internal options
 
-**Financial Inquiry:**
+**Explicit Specialist Escalation:**
 ```
-"What's the pricing for enterprise licensing?"
+"refer to fridge buddy"
 ```
-→ Retail Agent consults Insurance specialist and provides detailed pricing
+→ Orchestrator routes to FridgeBuddy for specialist recommendations
 
-**Combined Query:**
+**Insurance Phase:**
 ```
-"Can you produce 10,000 units and what would the cost be?"
+"yes, add insurance"
 ```
-→ Retail Agent consults both Product and Insurance specialists
+→ Orchestrator routes to InsuranceBuddy with product context for coverage/pricing
 
 ## 🛠️ How It Works
 
