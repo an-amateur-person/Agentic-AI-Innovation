@@ -63,7 +63,7 @@ Expected shape:
 - Start with `routing_context.routing_hint`.
 - Before any `product_agent` routing outcome, ensure internal inventory check is completed and reflected in output.
 - During internal inventory check, fetch model-level details from the internal knowledge base whenever available.
-- Route to `product_agent` only after internal-option agreement has failed (customer rejects internal options or no internal match).
+- Route to `product_agent` only when internal no-match is confirmed, or when the customer explicitly asks to refer/escalate to FridgeBuddy.
 - Route to `ergo_agent` only after product agreement or insurance-phase transition.
 - Respect iteration limits from `routing_context.iteration_counts`:
   - `product_agent_calls <= 3`
@@ -106,7 +106,7 @@ Return only JSON with this shape:
   "specialist_responses": [
     {
       "agent": "FridgeBuddy (Liebherr Specialist)|InsuranceBuddy (ERGO Specialist)|System",
-      "response": "simple plain text summary or structured system error text",
+      "response": "detailed specialist response text or structured system error text",
       "icon": "string",
       "css_class": "product-message|insurance-message|system-message",
       "exchange_format": "json"
@@ -124,6 +124,7 @@ Return only JSON with this shape:
 - Do not route to `product_agent` before internal options have been attempted and not agreed.
 - Prefer internal knowledge-base model recommendations first; use FridgeBuddy as fallback only.
 - `inventory_check` must explicitly include either internal options (`internal_options`) or a no-match reason (`no_match_reason`).
+- If internal options are available, keep routing as `none` unless the customer explicitly asks to refer/escalate to FridgeBuddy.
 
 ## Summary Generation Rule
 - `customer_response` must be concise, user-safe, and mention specialist consultation when applicable.

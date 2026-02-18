@@ -62,11 +62,11 @@ sequenceDiagram
    alt Route = product_agent
       O->>P: specialist_request (JSON)
       P-->>O: product response (JSON)
-      O->>O: Simplify/sanitize to plain text
+      O->>O: Normalize and preserve specialist response detail
    else Route = ergo_agent
       O->>I: specialist_request (JSON)
       I-->>O: insurance response (JSON)
-      O->>O: Simplify/sanitize to plain text
+      O->>O: Normalize and preserve specialist response detail
    else Route = none
       O->>O: Keep response in BuyBuddy-only path
    end

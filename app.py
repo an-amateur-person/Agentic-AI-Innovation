@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import html
+import re
 from dotenv import load_dotenv
 from datetime import datetime
 from io import BytesIO
@@ -32,6 +33,111 @@ REQUIRED_ENV_VARS = [
 
 def get_missing_required_env_vars():
     return [key for key in REQUIRED_ENV_VARS if not os.getenv(key)]
+
+
+def _extract_inventory_structured_info(details_text):
+    details = str(details_text or "")
+    details_lower = details.lower()
+
+    brands = []
+    for brand in ["Bosch", "Siemens", "Neff", "Constructa", "Liebherr"]:
+        if brand.lower() in details_lower:
+            brands.append(brand)
+
+    model_matches = re.findall(
+        r"\b(Bosch|Siemens|Neff|Constructa|Liebherr)\s+([A-Za-z]{2,8}[A-Za-z0-9/-]{2,})\b",
+        details,
+        re.IGNORECASE,
+    )
+    model_candidates = []
+    for brand, model in model_matches:
+        candidate = f"{brand.title()} {model.upper()}"
+        if candidate not in model_candidates:
+            model_candidates.append(candidate)
+
+    raw_segments = [seg.strip(" •-\n\t") for seg in re.split(r"\n|;", details) if seg.strip()]
+    parsed_model_rows = []
+    for segment in raw_segments:
+        if not re.search(r"\b(bosch|siemens|neff|constructa|liebherr)\b", segment, re.IGNORECASE):
+            continue
+
+        model_match = re.search(
+            r"\b(Bosch|Siemens|Neff|Constructa|Liebherr)\s+([A-Za-z]{2,8}[A-Za-z0-9/-]{2,})\b",
+            segment,
+            re.IGNORECASE,
+        )
+        if not model_match:
+            continue
+
+        brand = model_match.group(1).title()
+        model = model_match.group(2).upper()
+
+        dimension_match = re.search(
+            r"(\d{2,3}(?:[\.,]\d)?\s*[x×]\s*\d{2,3}(?:[\.,]\d)?\s*[x×]\s*\d{2,3}(?:[\.,]\d)?\s*cm)",
+            segment,
+            re.IGNORECASE,
+        )
+        niche_match = re.search(r"(niche\s*:?\s*\d{2,3}(?:[\.,]\d)?\s*cm)", segment, re.IGNORECASE)
+        capacity_match = re.search(r"(\d{2,3}\s*l)\b", segment, re.IGNORECASE)
+        energy_match = re.search(r"\b([A-F])\b\s*(?:energy|class|label)?", segment, re.IGNORECASE)
+        noise_match = re.search(r"(\d{2}\s*dB\(?A?\)?)", segment, re.IGNORECASE)
+        price_match = re.search(r"((?:~|ca\.?\s*)?\d{3,4}(?:[\.,]\d{2})?\s*€)", segment, re.IGNORECASE)
+
+        parsed_model_rows.append(
+            {
+                "model_name": f"{brand} {model}",
+                "dimensions": dimension_match.group(1) if dimension_match else None,
+                "niche": niche_match.group(1) if niche_match else None,
+                "capacity": capacity_match.group(1) if capacity_match else None,
+                "energy_class": energy_match.group(1).upper() if energy_match else None,
+                "noise": noise_match.group(1) if noise_match else None,
+                "price": price_match.group(1) if price_match else None,
+            }
+        )
+
+    unique_rows = []
+    seen_models = set()
+    for row in parsed_model_rows:
+        model_key = row.get("model_name")
+        if not model_key or model_key in seen_models:
+            continue
+        seen_models.add(model_key)
+        unique_rows.append(row)
+
+    price_band = None
+    price_patterns = [
+        r"\b\d{3,4}\s*[–-]\s*\d{3,4}\s*€",
+        r"~\s*\d{3,4}\s*€",
+        r"\b\d{3,4}\s*€\b",
+    ]
+    for pattern in price_patterns:
+        match = re.search(pattern, details)
+        if match:
+            price_band = match.group(0)
+            break
+
+    niche_match = re.search(r"(?:height|heights?|niche heights?)\s*(?:around|roughly)?\s*([\d\s~–\-]{3,20}cm)", details_lower)
+    niche_range = niche_match.group(1) if niche_match else None
+
+    capacity_match = re.search(r"(\d{2,3}\s*[–-]\s*\d{2,3}\s*l)", details_lower)
+    capacity_range = capacity_match.group(1) if capacity_match else None
+
+    noise_match = re.search(r"(\d{2}\s*[–-]\s*\d{2}\s*dB\(?a?\)?)", details, re.IGNORECASE)
+    noise_range = noise_match.group(1) if noise_match else None
+
+    energy_match = re.search(r"energy\s*(?:class|classes|labels?)\s*\(?\s*([A-F]\s*[–-]\s*[A-F]|[A-F])", details, re.IGNORECASE)
+    energy_range = energy_match.group(1).replace(" ", "") if energy_match else None
+
+    return {
+        "brands": brands,
+        "model_candidates": model_candidates,
+        "parsed_model_rows": unique_rows,
+        "price_band": price_band,
+        "niche_range": niche_range,
+        "capacity_range": capacity_range,
+        "noise_range": noise_range,
+        "energy_range": energy_range,
+    }
 
 # Helper function to get icon (image or emoji fallback)
 def get_agent_icon(agent_name):
@@ -205,11 +311,11 @@ else:
 st.markdown(f'''
 <div class="title-with-icon">
     {icon_html}
-    <h1>BuyBuddy - Customer Service</h1>
+    <h1>BuyBuddy - Your Personal Customer Service</h1>
 </div>
 ''', unsafe_allow_html=True)
 
-st.write("Welcome! I'm your BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
+st.write("Welcome! I'm BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
 
 # Initialize all agents
 @st.cache_resource
@@ -771,6 +877,9 @@ for msg in st.session_state.messages:
         if not isinstance(internal_options, list):
             internal_options = []
 
+        inventory_details_text = str(inventory.get("details", "Checked our internal database for available products."))
+        parsed_info = _extract_inventory_structured_info(inventory_details_text)
+
         options_lines = []
         for option in internal_options[:4]:
             if not isinstance(option, dict):
@@ -778,20 +887,90 @@ for msg in st.session_state.messages:
             model_name = option.get("model_name") or option.get("model_number") or option.get("name") or "Internal model"
             price = option.get("price") or option.get("base_price")
             availability = option.get("availability")
+            dimensions = option.get("dimensions") or option.get("dimension") or option.get("size")
+            niche = option.get("niche") or option.get("niche_height")
+            capacity = option.get("capacity") or option.get("volume")
+            energy_class = option.get("energy_class") or option.get("energy")
+            noise = option.get("noise") or option.get("noise_level")
             option_line = f"• {model_name}"
+            detail_parts = []
+            if dimensions:
+                detail_parts.append(f"Size: {dimensions}")
+            if niche:
+                detail_parts.append(f"Niche: {niche}")
+            if capacity:
+                detail_parts.append(f"Capacity: {capacity}")
+            if energy_class:
+                detail_parts.append(f"Energy: {energy_class}")
+            if noise:
+                detail_parts.append(f"Noise: {noise}")
             if price:
-                option_line += f" — {price}"
+                detail_parts.append(f"Price: {price}")
             if availability:
-                option_line += f" ({availability})"
+                detail_parts.append(f"Stock: {availability}")
+            if detail_parts:
+                option_line += " — " + " | ".join([str(part) for part in detail_parts])
             options_lines.append(option_line)
 
+        if not options_lines and parsed_info.get("parsed_model_rows"):
+            for row in parsed_info.get("parsed_model_rows", [])[:6]:
+                model_name = row.get("model_name") or "Internal model"
+                detail_parts = []
+                if row.get("dimensions"):
+                    detail_parts.append(f"Size: {row['dimensions']}")
+                if row.get("niche"):
+                    detail_parts.append(f"Niche: {row['niche']}")
+                if row.get("capacity"):
+                    detail_parts.append(f"Capacity: {row['capacity']}")
+                if row.get("energy_class"):
+                    detail_parts.append(f"Energy: {row['energy_class']}")
+                if row.get("noise"):
+                    detail_parts.append(f"Noise: {row['noise']}")
+                if row.get("price"):
+                    detail_parts.append(f"Price: {row['price']}")
+                option_line = f"• {model_name}"
+                if detail_parts:
+                    option_line += " — " + " | ".join(detail_parts)
+                options_lines.append(option_line)
+
+        if not options_lines and parsed_info.get("model_candidates"):
+            options_lines = [f"• {item}" for item in parsed_info.get("model_candidates", [])[:6]]
+
+        if not options_lines and parsed_info.get("brands"):
+            options_lines = [f"• {brand} built-in range" for brand in parsed_info.get("brands", [])]
+
         no_match_reason = str(inventory.get("no_match_reason", "")).strip()
+        internal_match_found = inventory.get("internal_match_found") if isinstance(inventory, dict) else None
+
+        profile_lines = []
+        match_status = "Confirmed internal matches" if internal_match_found is True else (
+            "No internal match found" if internal_match_found is False else "Internal match status pending"
+        )
+        profile_lines.append(f"• Match status: {match_status}")
+        if parsed_info.get("price_band"):
+            profile_lines.append(f"• Price band observed: {parsed_info['price_band']}")
+        if parsed_info.get("energy_range"):
+            profile_lines.append(f"• Energy class range: {parsed_info['energy_range']}")
+        if parsed_info.get("niche_range"):
+            profile_lines.append(f"• Niche height range: {parsed_info['niche_range']}")
+        if parsed_info.get("capacity_range"):
+            profile_lines.append(f"• Capacity range: {parsed_info['capacity_range']}")
+        if parsed_info.get("noise_range"):
+            profile_lines.append(f"• Noise range: {parsed_info['noise_range']}")
+        if parsed_info.get("brands"):
+            profile_lines.append(f"• Candidate brands: {', '.join(parsed_info['brands'])}")
+
+        profile_html = "<strong>Inventory profile:</strong><br/>" + "<br/>".join([html.escape(line) for line in profile_lines])
+
         if options_lines:
-            inventory_result_html = "<br/>".join([html.escape(line) for line in options_lines])
+            inventory_result_html = "<strong>Internal options:</strong><br/>" + "<br/>".join([html.escape(line) for line in options_lines])
+            details_html = "Internal knowledge-base candidates were found and structured below."
         elif no_match_reason:
             inventory_result_html = f"<strong>Internal result:</strong> {html.escape(no_match_reason)}"
+            details_html = inventory_details_text
         else:
             inventory_result_html = "<strong>Internal result:</strong> No internal model suggestions were returned in this turn."
+            details_html = inventory_details_text
 
         st.markdown(f"""
         <div class="chat-message retail-message" style="border-left-color: #FF9800; background-color: rgba(255, 152, 0, 0.1);">
@@ -801,7 +980,8 @@ for msg in st.session_state.messages:
             </div>
             <div class="message-content">
                 <strong>{inventory.get('summary', 'Inventory check completed')}</strong><br/>
-                {inventory.get('details', 'Checked our internal database for available products.')}<br/><br/>
+                {html.escape(details_html)}<br/><br/>
+                {profile_html}<br/><br/>
                 {inventory_result_html}
             </div>
         </div>

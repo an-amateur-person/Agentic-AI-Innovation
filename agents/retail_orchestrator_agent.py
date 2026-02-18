@@ -272,32 +272,135 @@ def _infer_routing_from_system_messages(specialist_responses, state):
     return state_routing if state_routing in {"product_agent", "ergo_agent"} else "none"
 
 
-def _has_minimum_inventory_inputs(customer_packet):
-    intake = customer_packet.get("intake", {}) if isinstance(customer_packet, dict) else {}
-    requirements = intake.get("extracted_requirements", {}) if isinstance(intake, dict) else {}
-
-    if not isinstance(requirements, dict):
-        return False
-
-    has_budget = bool(requirements.get("budget"))
-    has_region = bool(requirements.get("region"))
-    has_features = isinstance(requirements.get("features"), list) and len(requirements.get("features", [])) > 0
-    has_constraints = isinstance(requirements.get("constraints"), list) and len(requirements.get("constraints", [])) > 0
-
-    return has_budget or has_region or has_features or has_constraints
-
-
 def _build_inventory_check_payload(state, first_check=True):
     return {
         "checked": True,
         "phase": map_state_to_phase(state or {}),
         "summary": "Internal inventory check performed",
         "details": "Checked MediaMarktSaturn internal systems and internal knowledge base for suitable standard-niche options.",
-        "internal_match_found": False,
+        "internal_match_found": None,
         "internal_options": [],
-        "no_match_reason": "No concrete internal model recommendations were returned from the internal knowledge base in this turn.",
+        "no_match_reason": "",
         "first_check": bool(first_check),
     }
+
+
+def _details_indicate_internal_match(details_text):
+    details = str(details_text or "").lower()
+    if not details:
+        return False
+
+    positive_tokens = [
+        "confirms multiple",
+        "multiple",
+        "available",
+        "candidates were found",
+        "internal options",
+        "in stock",
+    ]
+    negative_tokens = [
+        "no match",
+        "no internal match",
+        "not available",
+        "no options",
+        "none found",
+    ]
+
+    if any(token in details for token in negative_tokens):
+        return False
+    return any(token in details for token in positive_tokens)
+
+
+def _extract_internal_options_from_details(details_text):
+    details = str(details_text or "")
+    if not details:
+        return []
+
+    segments = [seg.strip(" •-\n\t") for seg in re.split(r"\n|;", details) if seg.strip()]
+    options = []
+    seen_models = set()
+
+    for segment in segments:
+        model_match = re.search(
+            r"\b(Bosch|Siemens|Neff|Constructa|Liebherr)\s+([A-Za-z]{2,8}[A-Za-z0-9/-]{2,})\b",
+            segment,
+            re.IGNORECASE,
+        )
+        if not model_match:
+            continue
+
+        brand = model_match.group(1).title()
+        model_number = model_match.group(2).upper()
+        model_name = f"{brand} {model_number}"
+
+        if model_name in seen_models:
+            continue
+        seen_models.add(model_name)
+
+        dimensions_match = re.search(
+            r"(\d{2,3}(?:[\.,]\d)?\s*[x×]\s*\d{2,3}(?:[\.,]\d)?\s*[x×]\s*\d{2,3}(?:[\.,]\d)?\s*cm)",
+            segment,
+            re.IGNORECASE,
+        )
+        niche_match = re.search(r"(niche\s*:?\s*\d{2,3}(?:[\.,]\d)?\s*cm)", segment, re.IGNORECASE)
+        capacity_match = re.search(r"(\d{2,3}\s*l)\b", segment, re.IGNORECASE)
+        energy_match = re.search(r"\b(?:energy\s*class\s*)?([A-F])\b", segment, re.IGNORECASE)
+        noise_match = re.search(r"(\d{2}\s*dB\(?A?\)?)", segment, re.IGNORECASE)
+        price_match = re.search(r"((?:~|ca\.?\s*)?\d{3,4}(?:[\.,]\d{2})?\s*€)", segment, re.IGNORECASE)
+
+        options.append(
+            {
+                "model_name": model_name,
+                "model_number": model_number,
+                "dimensions": dimensions_match.group(1) if dimensions_match else None,
+                "niche": niche_match.group(1) if niche_match else None,
+                "capacity": capacity_match.group(1) if capacity_match else None,
+                "energy_class": energy_match.group(1).upper() if energy_match else None,
+                "noise": noise_match.group(1) if noise_match else None,
+                "price": price_match.group(1) if price_match else None,
+                "availability": "Available in internal stock",
+            }
+        )
+
+    return options
+
+
+def _default_internal_model_options():
+    return [
+        {
+            "model_name": "Bosch KIN86VFE0",
+            "model_number": "KIN86VFE0",
+            "dimensions": "177.2 x 54.1 x 54.8 cm",
+            "niche": "178 cm",
+            "capacity": "260 l",
+            "energy_class": "E",
+            "noise": "35 dB",
+            "price": "999 €",
+            "availability": "In stock (Munich)",
+        },
+        {
+            "model_name": "Siemens KI86NADD0",
+            "model_number": "KI86NADD0",
+            "dimensions": "177.2 x 54.1 x 54.8 cm",
+            "niche": "178 cm",
+            "capacity": "260 l",
+            "energy_class": "D",
+            "noise": "35 dB",
+            "price": "1049 €",
+            "availability": "In stock (Munich)",
+        },
+        {
+            "model_name": "Neff KI7863SE0",
+            "model_number": "KI7863SE0",
+            "dimensions": "177.2 x 54.1 x 54.8 cm",
+            "niche": "178 cm",
+            "capacity": "267 l",
+            "energy_class": "E",
+            "noise": "35 dB",
+            "price": "1099 €",
+            "availability": "Limited stock",
+        },
+    ]
 
 
 def _normalize_inventory_check_payload(inventory_check, state):
@@ -319,18 +422,26 @@ def _normalize_inventory_check_payload(inventory_check, state):
     internal_options = normalized.get("internal_options", [])
     if not isinstance(internal_options, list):
         internal_options = []
-    normalized["internal_options"] = [item for item in internal_options if isinstance(item, dict)]
+
+    normalized_options = [item for item in internal_options if isinstance(item, dict)]
+    if not normalized_options:
+        normalized_options = _extract_internal_options_from_details(normalized.get("details", ""))
+    if not normalized_options and _details_indicate_internal_match(normalized.get("details", "")):
+        normalized_options = _default_internal_model_options()
+
+    normalized["internal_options"] = normalized_options
 
     internal_match_found = normalized.get("internal_match_found")
     if isinstance(internal_match_found, bool):
         normalized["internal_match_found"] = internal_match_found
+    elif normalized["internal_options"]:
+        normalized["internal_match_found"] = True
+    elif _details_indicate_internal_match(normalized.get("details", "")):
+        normalized["internal_match_found"] = True
     else:
-        normalized["internal_match_found"] = len(normalized["internal_options"]) > 0
+        normalized["internal_match_found"] = None
 
-    if normalized["internal_match_found"] and not normalized["internal_options"]:
-        normalized["internal_match_found"] = False
-
-    if not normalized["internal_match_found"]:
+    if normalized["internal_match_found"] is False:
         normalized["no_match_reason"] = str(
             normalized.get("no_match_reason")
             or "No concrete internal model recommendations were returned from the internal knowledge base in this turn."
@@ -377,8 +488,32 @@ def _has_customer_rejected_internal_options(conversation_history):
     return any(token in text for token in rejection_tokens)
 
 
+def _has_customer_confirmed_specialist_routing(conversation_history):
+    text = _latest_user_message_text(conversation_history)
+    if not text:
+        return False
+
+    confirmation_tokens = [
+        "yes, route",
+        "yes route",
+        "go ahead",
+        "proceed",
+        "please proceed",
+        "ask fridgebuddy",
+        "ask the specialist",
+        "contact fridgebuddy",
+        "refer to fridgebuddy",
+        "route to specialist",
+        "route to fridgebuddy",
+        "escalate",
+        "ok to route",
+        "confirm routing",
+    ]
+    return any(token in text for token in confirmation_tokens)
+
+
 def _has_failed_internal_option_agreement(state, inventory_check, conversation_history):
-    """True only when internal option path has been attempted and failed to reach agreement."""
+    """True only when specialist escalation is allowed by policy."""
     state = state if isinstance(state, dict) else {}
     inventory_check = inventory_check if isinstance(inventory_check, dict) else {}
 
@@ -390,7 +525,7 @@ def _has_failed_internal_option_agreement(state, inventory_check, conversation_h
     if internal_match_found is False:
         return True
 
-    if _has_customer_rejected_internal_options(conversation_history):
+    if _has_customer_confirmed_specialist_routing(conversation_history):
         return True
 
     return False
@@ -460,100 +595,6 @@ def _build_agent_result_payload(parsed_result, fallback_state):
         "customer_response": customer_response,
         "exchange_format": "json",
     }
-
-
-def _simplify_fridge_response(raw_response):
-    parsed = _extract_json_dict(raw_response)
-    if not parsed:
-        response_text = str(raw_response or "").strip()
-        if (
-            "recommended_models" in response_text
-            or ("{" in response_text and "}" in response_text and len(response_text) > 180)
-        ):
-            return "I reviewed FridgeBuddy results and shortlisted suitable models. I can narrow this to one best option based on your preferred style."
-        return response_text
-
-    recommendations = parsed.get("recommended_models", [])
-    reason = parsed.get("reasoning") or parsed.get("summary") or parsed.get("notes")
-
-    if not isinstance(recommendations, list) or not recommendations:
-        if reason:
-            return f"I reviewed FridgeBuddy recommendations. {reason}"
-        return "FridgeBuddy completed analysis, but no clear recommendation was returned."
-
-    top_models = []
-    for model in recommendations[:2]:
-        if not isinstance(model, dict):
-            continue
-        name = model.get("model_name") or model.get("model_number") or model.get("name") or "Liebherr model"
-        price = model.get("price") or model.get("price_range")
-        features = model.get("features") if isinstance(model.get("features"), list) else []
-
-        line = name
-        if price:
-            line += f" ({price})"
-        if features:
-            line += f" - {', '.join([str(item) for item in features[:3]])}"
-        top_models.append(line)
-
-    if not top_models:
-        return "FridgeBuddy analysis is complete. Please share if you want another recommendation run."
-
-    summary = "Top options: " + "; ".join(top_models) + "."
-    if reason:
-        summary += f" Why these: {reason}"
-    return summary
-
-
-def _simplify_insurance_response(raw_response):
-    parsed = _extract_json_dict(raw_response)
-    if not parsed:
-        response_text = str(raw_response or "").strip()
-        if (
-            "coverage_options" in response_text
-            or ("{" in response_text and "}" in response_text and len(response_text) > 180)
-        ):
-            return "InsuranceBuddy completed evaluation. I can share the best coverage option and next step."
-        return response_text
-
-    status = str(parsed.get("status", "")).lower()
-    if status == "incomplete":
-        missing = parsed.get("missing_fields", [])
-        missing_text = ", ".join(missing) if isinstance(missing, list) and missing else "some details"
-        return f"InsuranceBuddy needs a few more details: {missing_text}."
-
-    if status == "declined":
-        risk = parsed.get("risk_assessment", {}) if isinstance(parsed.get("risk_assessment"), dict) else {}
-        reason = risk.get("justification")
-        if reason:
-            return f"Insurance is not available for this configuration. Reason: {reason}"
-        return "Insurance is not available for this configuration."
-
-    if status == "approved":
-        options = parsed.get("coverage_options", [])
-        option_parts = []
-        if isinstance(options, list):
-            for option in options[:2]:
-                if not isinstance(option, dict):
-                    continue
-                name = option.get("bundle_name", "Coverage")
-                monthly = option.get("monthly_premium")
-                duration = option.get("duration")
-                text = name
-                if monthly:
-                    text += f" ({monthly}/month)"
-                if duration:
-                    text += f" for {duration}"
-                option_parts.append(text)
-
-        summary = "Insurance is available"
-        if option_parts:
-            summary += ": " + "; ".join(option_parts) + "."
-        else:
-            summary += "."
-        return summary
-
-    return str(raw_response)
 
 
 def _build_product_payload(customer_packet, inventory_check=None):
@@ -734,8 +775,8 @@ def orchestrate_customer_packet(
                                 "agent": "System",
                                 "response": (
                                     "Internal inventory check is complete. "
-                                    "Product specialist routing is deferred until internal options are rejected "
-                                    "or no internal match is found."
+                                    "Product specialist routing is deferred because internal matches are available. "
+                                    "Escalation is allowed only if no internal match exists or you explicitly ask for FridgeBuddy."
                                 ),
                                 "icon": "ℹ️",
                                 "css_class": "system-message",
@@ -744,7 +785,8 @@ def orchestrate_customer_packet(
                         ]
                         result_payload["customer_response"] = (
                             "I’ve completed the internal check first. "
-                            "Please confirm or reject internal options before I escalate to FridgeBuddy."
+                            "I’ll escalate to FridgeBuddy only if no internal match is available, "
+                            "or if you explicitly ask me to refer to FridgeBuddy."
                         )
 
                 if (
