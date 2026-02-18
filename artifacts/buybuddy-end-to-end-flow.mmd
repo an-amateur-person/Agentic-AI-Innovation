@@ -16,26 +16,27 @@ sequenceDiagram
 
     A->>O: orchestrate_customer_packet(packet)
     O->>O: Validate state + routing_hint + iteration limits
+    O->>O: Run inventory-first check and build structured inventory_check
 
-    alt Route = product_agent
+    alt Explicit specialist ask OR internal no-match
         O->>P: specialist_request (JSON)
         P-->>O: product response (JSON)
-        O->>O: Simplify/sanitize to plain text
-    else Route = ergo_agent
+        O->>O: Normalize and preserve specialist response detail
+    else Product agreement reached
         O->>I: specialist_request (JSON)
         I-->>O: insurance response (JSON)
-        O->>O: Simplify/sanitize to plain text
+        O->>O: Normalize and preserve specialist response detail
     else Route = none
-        O->>O: Keep response in BuyBuddy-only path
+        O->>O: Keep response in BuyBuddy-only path with internal options
     end
 
     O->>O: Build orchestrator_result (JSON)
-    Note over O: customer_response includes specialist summary text
+    Note over O: customer_response is concise, details stay in specialist/inventory blocks
     O-->>A: orchestrator_result
 
     A->>A: Store state/phase counters in session
-    A->>A: Do NOT render specialist messages directly
-    A-->>U: Show single BuyBuddy plain-text response
+    A->>A: Render inventory and specialist messages inline
+    A-->>U: Show BuyBuddy response + structured inventory/specialist output
 
     opt Final phase
         U->>A: Generate proposal

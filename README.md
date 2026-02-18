@@ -23,6 +23,7 @@ An intelligent Streamlit application where customers interact with a customer-fa
 - **Role**: Backend orchestration agent
 - **Function**:
    - Receives JSON packet from customer-facing BuyBuddy
+   - Runs internal inventory-first checks and returns structured inventory payloads
    - Routes requests to FridgeBuddy / InsuranceBuddy
    - Enforces iteration and validation rules
    - Returns JSON result with specialist outputs and response summary
@@ -58,17 +59,18 @@ sequenceDiagram
 
    A->>O: orchestrate_customer_packet(packet)
    O->>O: Validate state + routing_hint + iteration limits
+   O->>O: Run inventory-first check (structured internal_options)
 
-   alt Route = product_agent
+   alt Explicit specialist ask OR internal no-match
       O->>P: specialist_request (JSON)
       P-->>O: product response (JSON)
       O->>O: Normalize and preserve specialist response detail
-   else Route = ergo_agent
+   else Product agreement reached
       O->>I: specialist_request (JSON)
       I-->>O: insurance response (JSON)
       O->>O: Normalize and preserve specialist response detail
    else Route = none
-      O->>O: Keep response in BuyBuddy-only path
+      O->>O: Keep response in BuyBuddy-only path with internal options
    end
 
    O->>O: Build orchestrator_result (JSON)
@@ -93,11 +95,12 @@ sequenceDiagram
 - ✅ **Smart Coordination** - BuyBuddy orchestrates specialist consultations when needed
 - ✅ **Context-Aware** - Maintains conversation history for better responses
 - ✅ **Transparent Process** - See when and why specialists are consulted
+- ✅ **Inventory-first flow** - Internal options are attempted before specialist fallback
 - ✅ **Proposal Generation** - Create PDF proposals from conversations
 - ✅ **Floating bot icon** with animation
 - ✅ **Chat history** with reset functionality
 - ✅ **Azure AI integration** with cloud-first credentials (`DefaultAzureCredential` + local fallback)
-- ✅ **Agent status monitoring** in sidebar
+- ✅ **Agent status monitoring** in sidebar (no diagnostics controls in UI)
 - ✅ **Graceful fallbacks** - Works even if specialist agents aren't configured
 
 ## 📦 Installation
@@ -221,15 +224,16 @@ Agentic-AI-Innovation/
 ### Query Flow
 
 1. **Customer asks a question** → BuyBuddy receives it
-2. **Analysis** → BuyBuddy prepares intake and routes via orchestrator when needed
-3. **Coordination** → Consults Product/Insurance agents if relevant topics detected
-4. **Response** → BuyBuddy returns a single summarized customer response
+2. **Analysis** → BuyBuddy prepares intake packet and state metadata
+3. **Orchestration** → Inventory-first check, then specialist routing only when policy allows
+4. **Response** → BuyBuddy response plus inline specialist/internal inventory blocks
 
-### Specialist Detection
+### Routing Policy
 
-BuyBuddy and the orchestrator detect when to consult specialists based on context:
-- **Product**: production, inventory, supply, operations, capacity, assembly
-- **Insurance**: cost, price, budget, revenue, expense, investment, ROI
+The orchestrator applies prompt-driven routing:
+- **FridgeBuddy**: used as fallback when internal no-match is confirmed, or when user explicitly asks to refer/escalate
+- **InsuranceBuddy**: used after product agreement / insurance phase transition
+- **Inventory check**: always represented via `inventory_check` block with structured `internal_options` or `no_match_reason`
 
 ## 📊 Agent Status
 
@@ -248,6 +252,7 @@ The sidebar displays real-time status of all agents:
 - ✅ **JSON inter-agent protocol** for internal coordination
 - ✅ **BuyBuddy response + specialist responses** shown inline in UI
 - ✅ **Context retention** with state + iteration tracking
+- ✅ **Prompt-driven parsing/routing preference** (minimal UI-side keyword hard-coding)
 
 ## 🤝 Contributing
 
