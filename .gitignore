@@ -24,6 +24,9 @@ env/
 .vscode/
 .idea/
 
+# Local prompt files (do not expose)
+prompts/
+
 # OS
 .DS_Store
 Thumbs.db
