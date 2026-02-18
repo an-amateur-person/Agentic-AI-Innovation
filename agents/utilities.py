@@ -130,7 +130,13 @@ def extract_requirements(conversation_history):
     if not conversation_history:
         return requirements
 
-    text = " ".join([msg.get("content", "") for msg in conversation_history[-5:]])
+    text_parts = []
+    for msg in conversation_history[-5:]:
+        if not isinstance(msg, dict):
+            continue
+        text_parts.append(str(msg.get("content", "")))
+
+    text = " ".join(text_parts)
     text_lower = text.lower()
 
     budget_patterns = [
@@ -185,6 +191,8 @@ def extract_product_details(conversation_history):
     text_parts = []
 
     for msg in recent_messages:
+        if not isinstance(msg, dict):
+            continue
         content = msg.get("content", "")
         if content:
             text_parts.append(content)

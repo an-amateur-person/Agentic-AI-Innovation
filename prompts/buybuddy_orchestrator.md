@@ -11,7 +11,7 @@ Given one customer intake packet JSON, return one `orchestrator_result` JSON tha
 - **JSON-only output.** Do not output markdown or prose outside JSON.
 - Preserve schema keys exactly as specified.
 - Keep `state` and `routing` consistent with intake context unless clear reason to transition.
-- `specialist_responses[].response` must be **simple plain text summaries**, not raw specialist JSON.
+- Preserve specialist meaning in `specialist_responses[].response`; include detailed specialist response text when available.
 - If specialist info is missing/invalid, emit structured `System` entry in `specialist_responses`.
 
 ## Input Contract (Customer-Facing Agent -> Orchestrator)
@@ -61,19 +61,19 @@ Expected shape:
 
 ## Routing & Validation Policy
 - Start with `routing_context.routing_hint`.
-- Route to `product_agent` only when product recommendation/search context is sufficient.
+- Before any `product_agent` routing outcome, ensure internal inventory check is completed and reflected in output.
+- During internal inventory check, fetch model-level details from the internal knowledge base whenever available.
+- Route to `product_agent` only after internal-option agreement has failed (customer rejects internal options or no internal match).
 - Route to `ergo_agent` only after product agreement or insurance-phase transition.
 - Respect iteration limits from `routing_context.iteration_counts`:
   - `product_agent_calls <= 3`
   - `insurance_agent_calls <= 3`
 - If routing should not proceed, set `routing: "none"` and explain via `customer_response`.
 
-## Specialist Summarization Policy
-When specialist insights are available, convert them to plain text:
-- FridgeBuddy: top recommendations + short reason
-- InsuranceBuddy: approval/decline/incomplete + next actionable step
-
-Never return raw internal JSON in user-facing summary text.
+## Specialist Response Policy
+When specialist insights are available:
+- Keep full specialist response content in `specialist_responses[].response`.
+- `customer_response` can stay concise, but must not hide the existence of specialist responses.
 
 ## Output Contract (MANDATORY)
 Return only JSON with this shape:
@@ -91,6 +91,16 @@ Return only JSON with this shape:
     "phase": 2,
     "summary": "string",
     "details": "string",
+    "internal_match_found": true,
+    "internal_options": [
+      {
+        "model_name": "string",
+        "model_number": "string",
+        "price": "string",
+        "availability": "string"
+      }
+    ],
+    "no_match_reason": "string",
     "first_check": true
   },
   "specialist_responses": [
@@ -107,6 +117,14 @@ Return only JSON with this shape:
 }
 ```
 
+### Inventory Gate (MANDATORY)
+- If `routing` is `product_agent`, `inventory_check.checked` must be `true` in the same response.
+- If a `FridgeBuddy` entry exists in `specialist_responses`, `inventory_check.checked` must be `true`.
+- Do not return product specialist routing/results without the inventory check block.
+- Do not route to `product_agent` before internal options have been attempted and not agreed.
+- Prefer internal knowledge-base model recommendations first; use FridgeBuddy as fallback only.
+- `inventory_check` must explicitly include either internal options (`internal_options`) or a no-match reason (`no_match_reason`).
+
 ## Summary Generation Rule
 - `customer_response` must be concise, user-safe, and mention specialist consultation when applicable.
-- Do not include raw internal payloads in `customer_response`.
+- `customer_response` should be natural and flexible (not templated/rigid phrasing).

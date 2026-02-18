@@ -116,6 +116,31 @@ def _sanitize_customer_response(text):
     return message
 
 
+def _format_specialist_response(response_payload):
+    """Normalize specialist output into readable text while preserving detail."""
+    if response_payload is None:
+        return ""
+
+    if isinstance(response_payload, (dict, list)):
+        try:
+            return json.dumps(response_payload, ensure_ascii=False, indent=2)
+        except Exception:
+            return str(response_payload)
+
+    text = str(response_payload).strip()
+    if not text:
+        return ""
+
+    parsed = _extract_json_dict(text)
+    if parsed is not None:
+        try:
+            return json.dumps(parsed, ensure_ascii=False, indent=2)
+        except Exception:
+            return text
+
+    return text
+
+
 def _normalize_specialist_entries(entries):
     normalized = []
     if not isinstance(entries, list):
@@ -125,20 +150,29 @@ def _normalize_specialist_entries(entries):
         if not isinstance(entry, dict):
             continue
 
-        agent_name = entry.get("agent", "System")
+        agent_name = str(entry.get("agent", "System")).strip()
+        agent_name_lower = agent_name.lower()
         response_text = entry.get("response", "")
 
-        if "FridgeBuddy" in agent_name:
+        if "fridgebuddy" in agent_name_lower:
             css_class = "product-message"
             icon = get_agent_icon("fridgebuddy")
-            response_text = _simplify_fridge_response(response_text)
-        elif "InsuranceBuddy" in agent_name:
+            response_text = _format_specialist_response(entry.get("raw_response", response_text))
+            if not str(response_text or "").strip():
+                response_text = (
+                    "FridgeBuddy did not return concrete model recommendations yet. "
+                    "Please retry once to fetch model-level availability."
+                )
+        elif "insurancebuddy" in agent_name_lower:
             css_class = "insurance-message"
             icon = get_agent_icon("insurancebuddy")
-            response_text = _simplify_insurance_response(response_text)
-        elif agent_name == "System":
+            response_text = _format_specialist_response(entry.get("raw_response", response_text))
+            if not str(response_text or "").strip():
+                response_text = "InsuranceBuddy did not return a complete quote yet. Please retry once."
+        elif "system" in agent_name_lower:
+            agent_name = "System"
             css_class = "system-message"
-            icon = "⚠️"
+            icon = "ℹ️"
         else:
             css_class = entry.get("css_class", "chat-message")
             icon = entry.get("icon", "💬")
@@ -165,6 +199,237 @@ def _is_valid_orchestrator_result(payload):
     )
 
 
+def _has_non_system_specialist_response(specialist_responses):
+    if not isinstance(specialist_responses, list):
+        return False
+
+    for item in specialist_responses:
+        if not isinstance(item, dict):
+            continue
+        agent_name = str(item.get("agent", "")).strip().lower()
+        if agent_name and "system" not in agent_name:
+            return True
+
+    return False
+
+
+def _has_product_specialist_response(specialist_responses):
+    if not isinstance(specialist_responses, list):
+        return False
+
+    for item in specialist_responses:
+        if not isinstance(item, dict):
+            continue
+        agent_name = str(item.get("agent", "")).strip().lower()
+        if "fridgebuddy" in agent_name:
+            return True
+
+    return False
+
+
+def _infer_routing_from_system_messages(specialist_responses, state):
+    """Infer intended routing when orchestrator returns only system guidance."""
+    if not isinstance(specialist_responses, list):
+        state_routing = str((state or {}).get("routing", "none")).strip().lower()
+        return state_routing if state_routing in {"product_agent", "ergo_agent"} else "none"
+
+    system_text = []
+    for item in specialist_responses:
+        if not isinstance(item, dict):
+            continue
+        agent_name = str(item.get("agent", "")).strip().lower()
+        if "system" in agent_name:
+            text = str(item.get("response", "")).strip().lower()
+            if text:
+                system_text.append(text)
+
+    joined = " ".join(system_text)
+
+    if any(
+        token in joined
+        for token in [
+            "route to fridgebuddy",
+            "consult fridgebuddy",
+            "proceeding to consult fridgebuddy",
+            "product specialist",
+            "route to product_agent",
+        ]
+    ):
+        return "product_agent"
+
+    if any(
+        token in joined
+        for token in [
+            "route to insurancebuddy",
+            "consult insurancebuddy",
+            "ergo specialist",
+            "route to ergo_agent",
+        ]
+    ):
+        return "ergo_agent"
+
+    state_routing = str((state or {}).get("routing", "none")).strip().lower()
+    return state_routing if state_routing in {"product_agent", "ergo_agent"} else "none"
+
+
+def _has_minimum_inventory_inputs(customer_packet):
+    intake = customer_packet.get("intake", {}) if isinstance(customer_packet, dict) else {}
+    requirements = intake.get("extracted_requirements", {}) if isinstance(intake, dict) else {}
+
+    if not isinstance(requirements, dict):
+        return False
+
+    has_budget = bool(requirements.get("budget"))
+    has_region = bool(requirements.get("region"))
+    has_features = isinstance(requirements.get("features"), list) and len(requirements.get("features", [])) > 0
+    has_constraints = isinstance(requirements.get("constraints"), list) and len(requirements.get("constraints", [])) > 0
+
+    return has_budget or has_region or has_features or has_constraints
+
+
+def _build_inventory_check_payload(state, first_check=True):
+    return {
+        "checked": True,
+        "phase": map_state_to_phase(state or {}),
+        "summary": "Internal inventory check performed",
+        "details": "Checked MediaMarktSaturn internal systems and internal knowledge base for suitable standard-niche options.",
+        "internal_match_found": False,
+        "internal_options": [],
+        "no_match_reason": "No concrete internal model recommendations were returned from the internal knowledge base in this turn.",
+        "first_check": bool(first_check),
+    }
+
+
+def _normalize_inventory_check_payload(inventory_check, state):
+    """Normalize inventory payload so UI can reliably render results/no-match states."""
+    state = state if isinstance(state, dict) else {}
+
+    if not isinstance(inventory_check, dict):
+        inventory_check = _build_inventory_check_payload(state, first_check=not bool(state.get("inventory_checked")))
+
+    normalized = dict(inventory_check)
+    normalized["checked"] = bool(normalized.get("checked"))
+    normalized["phase"] = normalized.get("phase", map_state_to_phase(state))
+    normalized["summary"] = str(normalized.get("summary") or "Internal inventory check performed")
+    normalized["details"] = str(
+        normalized.get("details")
+        or "Checked MediaMarktSaturn internal systems and internal knowledge base for suitable standard-niche options."
+    )
+
+    internal_options = normalized.get("internal_options", [])
+    if not isinstance(internal_options, list):
+        internal_options = []
+    normalized["internal_options"] = [item for item in internal_options if isinstance(item, dict)]
+
+    internal_match_found = normalized.get("internal_match_found")
+    if isinstance(internal_match_found, bool):
+        normalized["internal_match_found"] = internal_match_found
+    else:
+        normalized["internal_match_found"] = len(normalized["internal_options"]) > 0
+
+    if normalized["internal_match_found"] and not normalized["internal_options"]:
+        normalized["internal_match_found"] = False
+
+    if not normalized["internal_match_found"]:
+        normalized["no_match_reason"] = str(
+            normalized.get("no_match_reason")
+            or "No concrete internal model recommendations were returned from the internal knowledge base in this turn."
+        )
+    else:
+        normalized["no_match_reason"] = str(normalized.get("no_match_reason") or "")
+
+    normalized["first_check"] = bool(normalized.get("first_check"))
+    return normalized
+
+
+def _latest_user_message_text(conversation_history):
+    if not isinstance(conversation_history, list) or not conversation_history:
+        return ""
+
+    for item in reversed(conversation_history):
+        if not isinstance(item, dict):
+            continue
+        if item.get("role") == "user":
+            return str(item.get("content", "")).strip().lower()
+
+    return ""
+
+
+def _has_customer_rejected_internal_options(conversation_history):
+    text = _latest_user_message_text(conversation_history)
+    if not text:
+        return False
+
+    rejection_tokens = [
+        "not interested",
+        "not suitable",
+        "none of these",
+        "none work",
+        "don't like",
+        "do not like",
+        "reject",
+        "not agree",
+        "no agreement",
+        "different options",
+        "another option",
+        "show more options",
+    ]
+    return any(token in text for token in rejection_tokens)
+
+
+def _has_failed_internal_option_agreement(state, inventory_check, conversation_history):
+    """True only when internal option path has been attempted and failed to reach agreement."""
+    state = state if isinstance(state, dict) else {}
+    inventory_check = inventory_check if isinstance(inventory_check, dict) else {}
+
+    inventory_attempted = bool(state.get("inventory_checked")) or bool(inventory_check.get("checked"))
+    if not inventory_attempted:
+        return False
+
+    internal_match_found = inventory_check.get("internal_match_found")
+    if internal_match_found is False:
+        return True
+
+    if _has_customer_rejected_internal_options(conversation_history):
+        return True
+
+    return False
+
+
+def _ensure_inventory_check_payload(payload, require_check=False):
+    """Guarantee a checked inventory payload when required by flow."""
+    if not isinstance(payload, dict):
+        return payload
+
+    state_payload = payload.get("state") if isinstance(payload.get("state"), dict) else {}
+    inventory_payload = payload.get("inventory_check") if isinstance(payload.get("inventory_check"), dict) else None
+    inventory_checked = bool(inventory_payload and inventory_payload.get("checked") is True)
+
+    if not require_check and not bool(state_payload.get("inventory_checked")) and inventory_checked:
+        return payload
+
+    if require_check and not inventory_checked:
+        first_check = not bool(state_payload.get("inventory_checked"))
+        payload["inventory_check"] = _normalize_inventory_check_payload(
+            _build_inventory_check_payload(state_payload, first_check=first_check),
+            state_payload,
+        )
+        if isinstance(state_payload, dict):
+            state_payload["inventory_checked"] = True
+        return payload
+
+    if bool(state_payload.get("inventory_checked")) and not inventory_checked:
+        payload["inventory_check"] = _normalize_inventory_check_payload(
+            _build_inventory_check_payload(state_payload, first_check=True),
+            state_payload,
+        )
+
+    if isinstance(payload.get("inventory_check"), dict):
+        payload["inventory_check"] = _normalize_inventory_check_payload(payload.get("inventory_check"), state_payload)
+
+    return payload
+
+
 def _build_agent_result_payload(parsed_result, fallback_state):
     state = parsed_result.get("state") if isinstance(parsed_result.get("state"), dict) else (fallback_state or {})
 
@@ -173,10 +438,14 @@ def _build_agent_result_payload(parsed_result, fallback_state):
     inventory_check = parsed_result.get("inventory_check")
     if not isinstance(inventory_check, dict):
         inventory_check = None
+    if inventory_check is None and state.get("inventory_checked"):
+        inventory_check = _build_inventory_check_payload(state, first_check=True)
+    if isinstance(inventory_check, dict):
+        inventory_check = _normalize_inventory_check_payload(inventory_check, state)
 
     customer_response = _sanitize_customer_response(parsed_result.get("customer_response"))
     if not customer_response:
-        customer_response = "I’ve reviewed your request and coordinated with specialists."
+        customer_response = "I reviewed your request and coordinated with the relevant specialist."
     customer_response = _build_user_summary(customer_response, specialist_responses)
 
     return {
@@ -287,9 +556,31 @@ def _simplify_insurance_response(raw_response):
     return str(raw_response)
 
 
-def _build_product_payload(customer_packet):
-    state = customer_packet.get("routing_context", {}).get("state", {})
-    requirements = customer_packet.get("intake", {}).get("extracted_requirements", {})
+def _build_product_payload(customer_packet, inventory_check=None):
+    routing_context = customer_packet.get("routing_context", {}) if isinstance(customer_packet, dict) else {}
+    if not isinstance(routing_context, dict):
+        routing_context = {}
+
+    state = routing_context.get("state", {})
+    if not isinstance(state, dict):
+        state = {}
+
+    intake = customer_packet.get("intake", {}) if isinstance(customer_packet, dict) else {}
+    if not isinstance(intake, dict):
+        intake = {}
+
+    requirements = intake.get("extracted_requirements", {})
+    if not isinstance(requirements, dict):
+        requirements = {}
+
+    conversation = customer_packet.get("conversation", {}) if isinstance(customer_packet, dict) else {}
+    if not isinstance(conversation, dict):
+        conversation = {}
+
+    inventory_checked = bool(isinstance(inventory_check, dict) and inventory_check.get("checked") is True)
+    inventory_summary = inventory_check.get("summary") if isinstance(inventory_check, dict) else None
+    inventory_details = inventory_check.get("details") if isinstance(inventory_check, dict) else None
+    internal_match_found = inventory_check.get("internal_match_found") if isinstance(inventory_check, dict) else "unknown"
 
     return {
         "schema_version": "1.0",
@@ -298,13 +589,25 @@ def _build_product_payload(customer_packet):
         "target_agent": "fridgebuddy",
         "requested_action": "provide_liebherr_recommendations",
         "customer_context": {
-            "latest_user_input": customer_packet.get("conversation", {}).get("latest_user_input"),
+            "latest_user_input": conversation.get("latest_user_input"),
             "requirements": requirements,
+            "budget": requirements.get("budget"),
+            "region": requirements.get("region"),
+            "usage_context": requirements.get("usage"),
+        },
+        "product_context": {
+            "search_performed": inventory_checked,
+            "internal_match_found": internal_match_found,
+            "inventory_summary": inventory_summary,
+            "inventory_details": inventory_details,
+            "product_status": state.get("product_status", "searching"),
+            "constraints": requirements.get("constraints", []),
         },
         "state_context": state,
         "constraints": {
             "max_recommendations": 3,
             "response_format": "json",
+            "must_return_recommendations_or_no_match": True,
         },
     }
 
@@ -340,27 +643,27 @@ def _build_user_summary(base_text, specialist_responses):
     if not specialist_responses:
         return base_message
 
-    summary_parts = []
-    for item in specialist_responses:
-        if not isinstance(item, dict):
-            continue
+    if base_message:
+        return base_message
 
-        agent_name = str(item.get("agent", "")).strip()
-        response_text = str(item.get("response", "")).strip()
-        if not response_text:
-            continue
+    non_system_specialists = [
+        item
+        for item in specialist_responses
+        if isinstance(item, dict) and str(item.get("agent", "")).strip() != "System"
+    ]
+    if non_system_specialists:
+        return "I checked with our specialists and shared their responses below."
 
-        if "FridgeBuddy" in agent_name:
-            summary_parts.append(f"Product update: {response_text}")
-        elif "InsuranceBuddy" in agent_name:
-            summary_parts.append(f"Insurance update: {response_text}")
-        elif agent_name == "System":
-            summary_parts.append(response_text)
+    system_messages = [
+        str(item.get("response", "")).strip()
+        for item in specialist_responses
+        if isinstance(item, dict) and str(item.get("agent", "")).strip() == "System"
+    ]
+    for message in system_messages:
+        if message:
+            return message
 
-    if summary_parts:
-        return " ".join(summary_parts)
-
-    return "I consulted our specialists and prepared an updated recommendation."
+    return "I reviewed your request and prepared an update."
 
 
 def orchestrate_customer_packet(
@@ -380,7 +683,13 @@ def orchestrate_customer_packet(
     conversation_history = conversation_history or []
     iteration_counts = iteration_counts or {}
 
-    state_from_packet = customer_packet.get("routing_context", {}).get("state", {})
+    routing_context_from_packet = customer_packet.get("routing_context", {}) if isinstance(customer_packet, dict) else {}
+    if not isinstance(routing_context_from_packet, dict):
+        routing_context_from_packet = {}
+
+    state_from_packet = routing_context_from_packet.get("state", {})
+    if not isinstance(state_from_packet, dict):
+        state_from_packet = {}
 
     if orchestrator_agent and orchestrator_client:
         try:
@@ -391,18 +700,181 @@ def orchestrate_customer_packet(
             )
             parsed_orchestrator_response = _extract_json_dict(raw_orchestrator_response)
             if _is_valid_orchestrator_result(parsed_orchestrator_response):
-                return _build_agent_result_payload(parsed_orchestrator_response, state_from_packet)
+                result_payload = _build_agent_result_payload(parsed_orchestrator_response, state_from_packet)
+
+                routing_from_result = str(result_payload.get("routing", "none")).lower()
+                has_specialist = _has_non_system_specialist_response(result_payload.get("specialist_responses", []))
+                inferred_routing = _infer_routing_from_system_messages(
+                    result_payload.get("specialist_responses", []),
+                    result_payload.get("state", {}),
+                )
+                effective_routing = routing_from_result
+                if effective_routing not in {"product_agent", "ergo_agent"}:
+                    effective_routing = inferred_routing
+
+                should_require_inventory = (
+                    effective_routing == "product_agent"
+                    or _has_product_specialist_response(result_payload.get("specialist_responses", []))
+                )
+                result_payload = _ensure_inventory_check_payload(
+                    result_payload,
+                    require_check=should_require_inventory,
+                )
+
+                if effective_routing == "product_agent":
+                    agreement_failed = _has_failed_internal_option_agreement(
+                        result_payload.get("state", {}),
+                        result_payload.get("inventory_check", {}),
+                        conversation_history,
+                    )
+                    if not agreement_failed:
+                        result_payload["routing"] = "none"
+                        result_payload["specialist_responses"] = [
+                            {
+                                "agent": "System",
+                                "response": (
+                                    "Internal inventory check is complete. "
+                                    "Product specialist routing is deferred until internal options are rejected "
+                                    "or no internal match is found."
+                                ),
+                                "icon": "ℹ️",
+                                "css_class": "system-message",
+                                "exchange_format": "json",
+                            }
+                        ]
+                        result_payload["customer_response"] = (
+                            "I’ve completed the internal check first. "
+                            "Please confirm or reject internal options before I escalate to FridgeBuddy."
+                        )
+
+                if (
+                    not has_specialist
+                    and effective_routing == "product_agent"
+                    and product_agent
+                    and iteration_counts.get("product_agent_calls", 0) < 3
+                    and _has_failed_internal_option_agreement(
+                        result_payload.get("state", {}),
+                        result_payload.get("inventory_check", {}),
+                        conversation_history,
+                    )
+                ):
+                    try:
+                        payload = _build_product_payload(customer_packet, result_payload.get("inventory_check"))
+                        prod_response = get_product_response(
+                            json.dumps(payload, ensure_ascii=False),
+                            product_agent[0],
+                            product_agent[1],
+                        )
+                        formatted_product_response = _format_specialist_response(prod_response)
+                        if not formatted_product_response:
+                            formatted_product_response = (
+                                "FridgeBuddy did not return concrete model recommendations yet. "
+                                "Please retry once to fetch model-level availability."
+                            )
+                        result_payload["specialist_responses"].append(
+                            {
+                                "agent": "FridgeBuddy (Liebherr Specialist)",
+                                "response": formatted_product_response,
+                                "raw_response": str(prod_response),
+                                "icon": get_agent_icon("fridgebuddy"),
+                                "css_class": "product-message",
+                                "exchange_format": "json",
+                            }
+                        )
+                        iteration_counts["product_agent_calls"] = iteration_counts.get("product_agent_calls", 0) + 1
+                        result_payload["customer_response"] = _build_user_summary(
+                            result_payload.get("customer_response", ""),
+                            result_payload.get("specialist_responses", []),
+                        )
+                    except Exception as ex:
+                        result_payload["specialist_responses"].append(
+                            {
+                                "agent": "System",
+                                "response": f"⚠️ FridgeBuddy unavailable: {str(ex)}",
+                                "icon": "⚠️",
+                                "css_class": "system-message",
+                                "exchange_format": "json",
+                            }
+                        )
+
+                if (
+                    not _has_non_system_specialist_response(result_payload.get("specialist_responses", []))
+                    and effective_routing == "ergo_agent"
+                    and insurance_agent
+                    and iteration_counts.get("insurance_agent_calls", 0) < 3
+                ):
+                    is_valid, error_msg = validate_insurance_context(result_payload.get("state", {}), conversation_history)
+                    if not is_valid:
+                        result_payload["specialist_responses"].append(
+                            {
+                                "agent": "System",
+                                "response": f"⚠️ Cannot route to InsuranceBuddy: {error_msg}",
+                                "icon": "⚠️",
+                                "css_class": "system-message",
+                                "exchange_format": "json",
+                            }
+                        )
+                    else:
+                        try:
+                            payload = _build_insurance_payload(customer_packet, conversation_history)
+                            insurance_response = get_insurance_response(
+                                payload,
+                                insurance_agent[0],
+                                insurance_agent[1],
+                            )
+                            result_payload["specialist_responses"].append(
+                                {
+                                    "agent": "InsuranceBuddy (ERGO Specialist)",
+                                    "response": _format_specialist_response(insurance_response),
+                                    "raw_response": str(insurance_response),
+                                    "icon": get_agent_icon("insurancebuddy"),
+                                    "css_class": "insurance-message",
+                                    "exchange_format": "json",
+                                }
+                            )
+                            iteration_counts["insurance_agent_calls"] = iteration_counts.get("insurance_agent_calls", 0) + 1
+                            result_payload["customer_response"] = _build_user_summary(
+                                result_payload.get("customer_response", ""),
+                                result_payload.get("specialist_responses", []),
+                            )
+                            result_payload = _ensure_inventory_check_payload(result_payload, require_check=True)
+                        except Exception as ex:
+                            result_payload["specialist_responses"].append(
+                                {
+                                    "agent": "System",
+                                    "response": f"⚠️ InsuranceBuddy unavailable: {str(ex)}",
+                                    "icon": "⚠️",
+                                    "css_class": "system-message",
+                                    "exchange_format": "json",
+                                }
+                            )
+
+                return result_payload
         except Exception:
             pass
 
     state = state_from_packet
-    routing = customer_packet.get("routing_context", {}).get("routing_hint", "none")
-    user_input = customer_packet.get("conversation", {}).get("latest_user_input", "")
-    base_text = customer_packet.get("intake", {}).get("customer_visible_draft", "")
 
-    response_lower = base_text.lower()
-    user_input_lower = user_input.lower()
+    routing_context = customer_packet.get("routing_context", {}) if isinstance(customer_packet, dict) else {}
+    if not isinstance(routing_context, dict):
+        routing_context = {}
 
+    conversation = customer_packet.get("conversation", {}) if isinstance(customer_packet, dict) else {}
+    if not isinstance(conversation, dict):
+        conversation = {}
+
+    intake = customer_packet.get("intake", {}) if isinstance(customer_packet, dict) else {}
+    if not isinstance(intake, dict):
+        intake = {}
+
+    routing = routing_context.get("routing_hint", "none")
+    user_input = conversation.get("latest_user_input", "")
+    base_text = intake.get("customer_visible_draft", "")
+
+    response_lower = str(base_text or "").lower()
+    user_input_lower = str(user_input or "").lower()
+
+    routing = str(routing or "none").lower()
     if routing == "none":
         explicit_product_request = any(
             term in user_input_lower
@@ -438,13 +910,16 @@ def orchestrate_customer_packet(
 
     inventory_check_result = None
     if state.get("inventory_checked"):
-        inventory_check_result = {
-            "checked": True,
-            "phase": map_state_to_phase(state),
-            "summary": "Internal inventory check performed",
-            "details": "Checked MediaMarktSaturn internal systems for product availability.",
-            "first_check": True,
-        }
+        inventory_check_result = _build_inventory_check_payload(state, first_check=True)
+
+    if routing == "product_agent" and not inventory_check_result:
+        first_check = not bool(state.get("inventory_checked"))
+        inventory_check_result = _build_inventory_check_payload(state, first_check=first_check)
+        if isinstance(state, dict):
+            state["inventory_checked"] = True
+
+    if routing == "product_agent" and not _has_failed_internal_option_agreement(state, inventory_check_result, conversation_history):
+        routing = "none"
 
     specialist_responses = []
 
@@ -461,16 +936,25 @@ def orchestrate_customer_packet(
             )
         else:
             try:
-                payload = _build_product_payload(customer_packet)
+                payload = _build_product_payload(
+                    customer_packet,
+                    _build_inventory_check_payload(state, first_check=not bool(state.get("inventory_checked"))),
+                )
                 prod_response = get_product_response(
                     json.dumps(payload, ensure_ascii=False),
                     product_agent[0],
                     product_agent[1],
                 )
+                formatted_product_response = _format_specialist_response(prod_response)
+                if not formatted_product_response:
+                    formatted_product_response = (
+                        "FridgeBuddy did not return concrete model recommendations yet. "
+                        "Please retry once to fetch model-level availability."
+                    )
                 specialist_responses.append(
                     {
                         "agent": "FridgeBuddy (Liebherr Specialist)",
-                        "response": _simplify_fridge_response(prod_response),
+                        "response": formatted_product_response,
                         "raw_response": str(prod_response),
                         "icon": get_agent_icon("fridgebuddy"),
                         "css_class": "product-message",
@@ -522,7 +1006,7 @@ def orchestrate_customer_packet(
                 specialist_responses.append(
                     {
                         "agent": "InsuranceBuddy (ERGO Specialist)",
-                        "response": _simplify_insurance_response(insurance_response),
+                        "response": _format_specialist_response(insurance_response),
                         "raw_response": str(insurance_response),
                         "icon": get_agent_icon("insurancebuddy"),
                         "css_class": "insurance-message",
@@ -553,5 +1037,11 @@ def orchestrate_customer_packet(
         "customer_response": _build_user_summary(base_text, specialist_responses),
         "exchange_format": "json",
     }
+
+    should_require_inventory = (
+        str(result_payload.get("routing", "none")).lower() == "product_agent"
+        or _has_product_specialist_response(result_payload.get("specialist_responses", []))
+    )
+    result_payload = _ensure_inventory_check_payload(result_payload, require_check=should_require_inventory)
 
     return result_payload

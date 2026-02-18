@@ -76,8 +76,8 @@ sequenceDiagram
    O-->>A: orchestrator_result
 
    A->>A: Store state/phase counters in session
-   A->>A: Do NOT render specialist messages directly
-   A-->>U: Show single BuyBuddy plain-text response
+   A->>A: Render specialist messages inline in chat
+   A-->>U: Show BuyBuddy response + specialist responses
 
    opt Final phase
       U->>A: Generate proposal
@@ -246,7 +246,7 @@ The sidebar displays real-time status of all agents:
 
 - ✅ **Split architecture**: BuyBuddy customer-facing + BuyBuddy orchestrator
 - ✅ **JSON inter-agent protocol** for internal coordination
-- ✅ **Single customer-facing response** in UI (specialists are not shown directly)
+- ✅ **BuyBuddy response + specialist responses** shown inline in UI
 - ✅ **Context retention** with state + iteration tracking
 
 ## 🤝 Contributing

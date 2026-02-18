@@ -43,6 +43,8 @@ def get_customer_facing_response(user_input, agent, openai_client, conversation_
         messages = []
         if conversation_history:
             for msg in conversation_history[-10:]:
+                if not isinstance(msg, dict):
+                    continue
                 role = "user" if msg.get("role") == "user" else "assistant"
                 messages.append({"role": role, "content": msg.get("content", "")})
 
@@ -63,6 +65,8 @@ def _build_recent_history_excerpt(conversation_history, limit=6):
         return history
 
     for msg in conversation_history[-limit:]:
+        if not isinstance(msg, dict):
+            continue
         history.append(
             {
                 "role": msg.get("role", "agent"),

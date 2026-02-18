@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import html
 from dotenv import load_dotenv
 from datetime import datetime
 from io import BytesIO
@@ -135,6 +136,12 @@ custom_css = """
 
 .insurance-message {
     border-left-color: #F44336;
+}
+
+.system-message {
+    border-left-color: #9E9E9E;
+    background-color: rgba(158, 158, 158, 0.08);
+    opacity: 0.82;
 }
 
 .sender-name {
@@ -357,9 +364,6 @@ if "iteration_counts" not in st.session_state:
         'product_agent_calls': 0,
         'insurance_agent_calls': 0
     }
-
-if "inventory_checked_once" not in st.session_state:
-    st.session_state.inventory_checked_once = False
 
 # Display initialization status in sidebar
 with st.sidebar:
@@ -601,6 +605,22 @@ def handle_customer_query(user_input, thinking_container):
                 st.session_state.iteration_counts,
             )
 
+            if not isinstance(orchestrator_result, dict):
+                orchestrator_result = {
+                    'customer_response': 'I completed your request intake, but the orchestrator returned an unexpected response format. Please try again.',
+                    'state': st.session_state.retail_state or {},
+                    'inventory_check': None,
+                    'specialist_responses': [
+                        {
+                            'agent': 'System',
+                            'response': 'Orchestrator returned an invalid payload. Please retry this step.',
+                            'icon': 'ℹ️',
+                            'css_class': 'system-message',
+                            'exchange_format': 'json',
+                        }
+                    ],
+                }
+
             result = {
                 'main_response': orchestrator_result.get('customer_response', ''),
                 'state': orchestrator_result.get('state'),
@@ -615,7 +635,7 @@ def handle_customer_query(user_input, thinking_container):
             st.session_state.iteration_counts['customer_clarifications'] += 1
             
             # Show thinking steps based on what retail agent decided
-            if result.get('inventory_check'):
+            if (result.get('inventory_check') or {}).get('checked'):
                 add_thinking_step("📦 Checked internal MediaMarktSaturn inventory")
             
             if result.get('specialist_responses'):
@@ -667,7 +687,6 @@ if st.sidebar.button("🔄 Reset Chat"):
         "icon": get_agent_icon('retail_agent')
     }]
     # Reset all tracking flags
-    st.session_state.inventory_checked_once = False
     st.session_state.iteration_counts = {
         'customer_clarifications': 0,
         'product_agent_calls': 0,
@@ -745,13 +764,36 @@ for msg in st.session_state.messages:
         with st.expander("🧠 Agent Coordination Process", expanded=False):
             st.markdown(msg["thinking"])
     
-    # Show internal inventory check results if available (only once per session)
+    # Show internal inventory check results when available
     if msg.get("inventory_check") and msg["inventory_check"].get("checked"):
-        # Only show if we haven't shown it before
-        if not st.session_state.inventory_checked_once:
-            st.session_state.inventory_checked_once = True
-            inventory = msg["inventory_check"]
-            st.markdown(f"""
+        inventory = msg["inventory_check"]
+        internal_options = inventory.get("internal_options", []) if isinstance(inventory, dict) else []
+        if not isinstance(internal_options, list):
+            internal_options = []
+
+        options_lines = []
+        for option in internal_options[:4]:
+            if not isinstance(option, dict):
+                continue
+            model_name = option.get("model_name") or option.get("model_number") or option.get("name") or "Internal model"
+            price = option.get("price") or option.get("base_price")
+            availability = option.get("availability")
+            option_line = f"• {model_name}"
+            if price:
+                option_line += f" — {price}"
+            if availability:
+                option_line += f" ({availability})"
+            options_lines.append(option_line)
+
+        no_match_reason = str(inventory.get("no_match_reason", "")).strip()
+        if options_lines:
+            inventory_result_html = "<br/>".join([html.escape(line) for line in options_lines])
+        elif no_match_reason:
+            inventory_result_html = f"<strong>Internal result:</strong> {html.escape(no_match_reason)}"
+        else:
+            inventory_result_html = "<strong>Internal result:</strong> No internal model suggestions were returned in this turn."
+
+        st.markdown(f"""
         <div class="chat-message retail-message" style="border-left-color: #FF9800; background-color: rgba(255, 152, 0, 0.1);">
             <div class="sender-name">
                 <span>📦 <strong>Internal Inventory Check</strong></span>
@@ -759,13 +801,39 @@ for msg in st.session_state.messages:
             </div>
             <div class="message-content">
                 <strong>{inventory.get('summary', 'Inventory check completed')}</strong><br/>
-                {inventory.get('details', 'Checked our internal database for available products.')}
+                {inventory.get('details', 'Checked our internal database for available products.')}<br/><br/>
+                {inventory_result_html}
             </div>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Specialist responses are intentionally not rendered directly in UI.
-    # Orchestrator summarizes specialist outputs into BuyBuddy's main response.
+
+    # Show specialist responses directly when present
+    if msg["role"] == "agent" and msg.get("specialist_responses"):
+        for specialist in msg.get("specialist_responses", []):
+            specialist_sender = specialist.get("agent", "Specialist")
+            specialist_icon = specialist.get("icon", "💬")
+            specialist_css = specialist.get("css_class", "chat-message")
+            specialist_content = str(specialist.get("response", "")).strip()
+
+            if "system" in str(specialist_sender).lower():
+                specialist_sender = "System"
+                specialist_css = "system-message"
+                specialist_icon = "ℹ️"
+
+            if not specialist_content:
+                continue
+
+            specialist_content_html = html.escape(specialist_content).replace("\n", "<br/>")
+
+            st.markdown(f"""
+        <div class="chat-message {specialist_css}">
+            <div class="sender-name">
+                <span>{specialist_icon} <strong>{specialist_sender}</strong></span>
+                <span class="timestamp">{timestamp}</span>
+            </div>
+            <div class="message-content">{specialist_content_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # Receive user input and generate response
 if prompt := st.chat_input(placeholder="Ask me anything..."):

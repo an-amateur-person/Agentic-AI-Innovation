@@ -30,7 +30,7 @@ Use exactly these values:
 
 ## Routing Policy
 - During intake, keep `routing: none` unless enough information is present and product search should begin.
-- Use `routing: product_agent` when external product specialist support is needed.
+- Use `routing: product_agent` only after internal options are presented and not agreed (or internal check confirms no suitable match).
 - Use `routing: ergo_agent` only after product agreement or when insurance should be offered.
 
 ## Output Format (MANDATORY)

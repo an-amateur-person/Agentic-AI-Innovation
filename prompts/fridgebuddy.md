@@ -88,6 +88,13 @@ Return **structured JSON** with this format:
 }
 ```
 
+### Mandatory Outcome Rule
+- Always return either:
+  - `recommended_models` with at least 1 model, or
+  - an explicit no-match result with `recommended_models: []` and a clear explanation in `narrative_summary` and `next_steps`.
+- Never return only routing/forwarding instructions.
+- If inventory pre-check context is provided, reference it and produce model-level availability or explicit no-match.
+
 ---
 
 ## Response Guidelines
@@ -218,3 +225,4 @@ Return **structured JSON** with this format:
 * Be specific about what's in stock vs. what requires customization
 * Clarify regional availability when relevant
 * If multiple models match, present top 2-3 options with comparison
+* Do not respond with orchestration text like "route to specialist"; return recommendations/no-match results directly
