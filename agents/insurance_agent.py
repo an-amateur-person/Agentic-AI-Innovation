@@ -43,7 +43,7 @@ def get_insurance_response(user_input, agent, openai_client):
         payload = json.dumps(user_input, ensure_ascii=False)
 
     if not agent:
-        return f"InsuranceBuddy: Analyzing insurance query - '{payload}'"
+        return f"Insurance Specialist: Analyzing insurance query - '{payload}'"
     
     try:
         response = openai_client.responses.create(
@@ -52,8 +52,8 @@ def get_insurance_response(user_input, agent, openai_client):
         )
         return response.output_text
     except Exception as e:
-        return f"InsuranceBuddy Error: {str(e)}"
+        return f"Insurance Specialist Error: {str(e)}"
 
 if __name__ == "__main__":
     agent, client = initialize_insurance_agent()
-    print("InsuranceBuddy initialized successfully")
+    print("Insurance Specialist initialized successfully")

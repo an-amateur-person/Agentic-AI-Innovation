@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import html
+import base64
 from dotenv import load_dotenv
 from datetime import datetime
 from io import BytesIO
@@ -36,6 +37,18 @@ def get_missing_required_env_vars():
 
 def _safe_text(value):
     return str(value).strip() if value is not None else ""
+
+
+def _get_asset_icon_tag(file_name, alt_text, css_class="chat-icon-img"):
+    icon_path = os.path.join(os.path.dirname(__file__), "assets", file_name)
+    if not os.path.exists(icon_path):
+        return ""
+    try:
+        with open(icon_path, "rb") as icon_file:
+            encoded = base64.b64encode(icon_file.read()).decode()
+        return f'<img src="data:image/png;base64,{encoded}" class="{css_class}" alt="{alt_text}">' 
+    except Exception:
+        return ""
 
 
 def _build_inventory_profile_from_options(internal_options):
@@ -81,33 +94,33 @@ def _build_inventory_profile_from_options(internal_options):
 
     return profile
 
-# Helper function to get icon (image or emoji fallback)
+# Helper function to get icon (assets only)
 def get_agent_icon(agent_name):
-    """Get base64 encoded image for agent icon or return emoji fallback"""
-    import base64
+    """Get base64 encoded image for agent icon from assets only."""
     icon_mapping = {
-        'retail_agent': ('buybuddy.png', '🛒'),
-        'fridgebuddy': ('fridgebuddy.png', '📦'),
-        'insurancebuddy': ('insurancebuddy.png', '🛡️'),
-        'customer': (None, '👤')
+        'retail_agent': 'assistant.png',
+        'assistant': 'assistant.png',
+        'orchestrator': 'assistant.png',
+        'retail_orchestrator_agent': 'assistant.png',
+        'product_specialist': 'product-specialist.png',
+        'insurance_specialist': 'insurance-specialist.png',
+        'customer': 'assistant.png',
     }
-    
-    icon_file, fallback_emoji = icon_mapping.get(agent_name.lower(), (None, '💬'))
-    
-    if icon_file:
-        icon_path = os.path.join(os.path.dirname(__file__), 'assets', icon_file)
-        if os.path.exists(icon_path):
-            try:
-                with open(icon_path, 'rb') as f:
-                    img_bytes = f.read()
-                img_base64 = base64.b64encode(img_bytes).decode()
-                return f'<img src="data:image/png;base64,{img_base64}" class="chat-icon-img" alt="{agent_name}">'
-            except:
-                return fallback_emoji
-    return fallback_emoji
+    icon_file = icon_mapping.get(str(agent_name or "").lower())
+    if not icon_file:
+        return ""
+    return _get_asset_icon_tag(icon_file, str(agent_name or "agent"))
+
+
+def get_agent_label_with_icon(agent_name, icon_key):
+    icon_tag = get_agent_icon(icon_key)
+    if icon_tag:
+        return f"{icon_tag} {html.escape(agent_name)}"
+    return html.escape(agent_name)
 
 # Webpage configurations
-st.set_page_config(page_title="Agentic AI System Interface", page_icon="🛒")
+page_icon_path = os.path.join(os.path.dirname(__file__), "assets", "assistant.png")
+st.set_page_config(page_title="Agentic AI System Interface", page_icon=page_icon_path if os.path.exists(page_icon_path) else None)
 
 # Define custom CSS for styling
 custom_css = """
@@ -231,6 +244,14 @@ custom_css = """
     vertical-align: middle;
     margin-right: 4px;
 }
+
+.sidebar-agent-icon {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    vertical-align: text-bottom;
+    margin-right: 4px;
+}
 </style>
 """
 
@@ -238,26 +259,24 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # Display title with icon
-icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'buybuddy.png')
+icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'assistant.png')
 if os.path.exists(icon_path):
     # Read and encode the image for display
-    import base64
     with open(icon_path, 'rb') as f:
         img_bytes = f.read()
     img_base64 = base64.b64encode(img_bytes).decode()
-    icon_html = f'<div class="title-icon"><img src="data:image/png;base64,{img_base64}" alt="BuyBuddy"></div>'
+    icon_html = f'<div class="title-icon"><img src="data:image/png;base64,{img_base64}" alt="Assistant"></div>'
 else:
-    # Fallback to emoji if image not found
-    icon_html = '<div class="title-icon title-icon-emoji">🛒</div>'
+    icon_html = '<div class="title-icon"></div>'
 
 st.markdown(f'''
 <div class="title-with-icon">
     {icon_html}
-    <h1>BuyBuddy - Your Personal Assistant</h1>
+    <h1>Assistant - Your Personal Assistant</h1>
 </div>
 ''', unsafe_allow_html=True)
 
-st.write("Welcome! I'm BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
+st.write("Welcome! I'm your assistant. Ask me anything, and I'll coordinate with specialized teams when needed.")
 
 # Initialize all agents
 @st.cache_resource
@@ -385,7 +404,7 @@ def determine_current_phase(conversation_history, last_state=None):
         return 5
     
     # Phase 4: Insurance keywords
-    if any(kw in conversation_text for kw in ['insurance', 'warranty', 'protection plan', 'coverage', 'ergo']):
+    if any(kw in conversation_text for kw in ['insurance', 'warranty', 'protection plan', 'coverage']):
         return 4
     
     # Phase 3: Product agreement keywords
@@ -393,7 +412,7 @@ def determine_current_phase(conversation_history, last_state=None):
         return 3
     
     # Phase 2: Inventory/product search keywords
-    if any(kw in conversation_text for kw in ['product', 'fridge', 'looking for', 'need', 'stock', 'available', 'liebherr']):
+    if any(kw in conversation_text for kw in ['product', 'fridge', 'looking for', 'need', 'stock', 'available']):
         return 2
     
     # Default: Phase 1 (intake)
@@ -416,7 +435,7 @@ if "iteration_counts" not in st.session_state:
 # Display initialization status in sidebar
 with st.sidebar:
     # Phase Tracker - Compact view
-    st.subheader("📋 Progress")
+    st.subheader("Progress")
     
     # Update current phase based on retail_agent state or conversation
     current_phase = determine_current_phase(
@@ -437,18 +456,18 @@ with st.sidebar:
     phase_status = []
     for num, title in phases:
         if num < current_phase:
-            phase_status.append(f"✅ {title}")
+            phase_status.append(f"Done {title}")
         elif num == current_phase:
-            phase_status.append(f"▶️ **{title}**")
+            phase_status.append(f"Now **{title}**")
         else:
-            phase_status.append(f"⏸️ {title}")
+            phase_status.append(f"Next {title}")
     
     st.markdown(" → ".join(phase_status))
     
     st.markdown("---")
     
     # Agent Status - Compact
-    st.subheader("🤖 Agents")
+    st.subheader("Agents")
 
     missing_env_vars = get_missing_required_env_vars()
     if missing_env_vars:
@@ -459,16 +478,16 @@ with st.sidebar:
     elif 'main' not in init_errors:
         agent_icons = []
         if agents.get('customer'):
-            agent_icons.append("🛒 BuyBuddy (Customer)")
+            agent_icons.append(get_agent_label_with_icon("Assistant", "assistant"))
         if agents.get('orchestrator'):
-            agent_icons.append("⚙️ BuyBuddy (Orchestrator)")
+            agent_icons.append(get_agent_label_with_icon("Orchestrator", "orchestrator"))
         if agents.get('product'):
-            agent_icons.append("📦 FridgeBuddy")
+            agent_icons.append(get_agent_label_with_icon("Product Specialist", "product_specialist"))
         if agents.get('insurance'):
-            agent_icons.append("🛡️ InsuranceBuddy")
+            agent_icons.append(get_agent_label_with_icon("Insurance Specialist", "insurance_specialist"))
         
         if agent_icons:
-            st.success(" | ".join(agent_icons))
+            st.markdown(" | ".join(agent_icons), unsafe_allow_html=True)
         else:
             st.warning("No agents configured")
     else:
@@ -486,7 +505,7 @@ def generate_quotation():
         agents, clients, init_errors, agents_initialized = get_agent_runtime(force_initialize=True)
 
     if len(st.session_state.messages) <= 1:
-        return None, "No conversation to generate quotation from. Start chatting with BuyBuddy first!"
+        return None, "No conversation to generate quotation from. Start chatting first!"
     
     # Build conversation context
     conversation_text = ""
@@ -496,7 +515,7 @@ def generate_quotation():
         conversation_text += f"{sender}: {content}\n\n"
     
     # Create prompt for customer-facing retail_agent to generate quotation after collaboration
-    quotation_prompt = f"""Based on the collaboration between BuyBuddy, FridgeBuddy, and InsuranceBuddy agents in the conversation below, create a formal product quotation for the customer.
+    quotation_prompt = f"""Based on the collaboration between the assistant, product specialist, and insurance specialist in the conversation below, create a formal product quotation for the customer.
 
 The quotation should include:
 1. Quotation Summary
@@ -521,7 +540,7 @@ Generate a comprehensive, professional product quotation document that consolida
             quotation_text = response.output_text
             return quotation_text, None
         else:
-            return None, "BuyBuddy customer-facing agent is not available to generate quotation."
+            return None, "Customer-facing agent is not available to generate quotation."
     except Exception as e:
         return None, f"Error generating quotation: {str(e)}"
 
@@ -593,12 +612,12 @@ def handle_customer_query(user_input, thinking_container):
         with thinking_container:
             st.markdown("\n\n".join(thinking_steps))
     
-    add_thinking_step("🛒 BuyBuddy is analyzing your query...")
+    add_thinking_step("Assistant is analyzing your query...")
     
     # Check iteration limits
     if st.session_state.iteration_counts['customer_clarifications'] >= 10:
-        add_thinking_step("⚠️ Maximum BuyBuddy conversation iterations reached (10/10)")
-        add_thinking_step("💡 Please reset chat to start a new conversation.")
+        add_thinking_step("Maximum assistant conversation iterations reached (10/10)")
+        add_thinking_step("Please reset chat to start a new conversation.")
         return {
             'thinking': "\n\n".join(thinking_steps),
             'main_response': "I have reached the maximum of 10 conversation iterations for this session. Please click 'Reset Chat' to continue with a new request.",
@@ -611,7 +630,7 @@ def handle_customer_query(user_input, thinking_container):
 
         missing_env_vars = get_missing_required_env_vars()
         if missing_env_vars:
-            add_thinking_step("⚠️ Missing required App Settings")
+            add_thinking_step("Missing required App Settings")
             return {
                 'thinking': "\n\n".join(thinking_steps),
                 'main_response': "Configuration incomplete. Missing App Settings: " + ", ".join(missing_env_vars),
@@ -620,11 +639,11 @@ def handle_customer_query(user_input, thinking_container):
             }
 
         if not agents_initialized:
-            add_thinking_step("🔄 Initializing agents...")
+            add_thinking_step("Initializing agents...")
             agents, clients, init_errors, agents_initialized = get_agent_runtime(force_initialize=True)
 
         if agents.get('customer'):
-            add_thinking_step("🧾 BuyBuddy is collecting your requirements...")
+            add_thinking_step("Assistant is collecting your requirements...")
 
             customer_packet = collect_customer_input_packet(
                 user_input,
@@ -634,7 +653,7 @@ def handle_customer_query(user_input, thinking_container):
                 st.session_state.iteration_counts,
             )
 
-            add_thinking_step("⚙️ Orchestrator is coordinating specialist requests...")
+            add_thinking_step("Orchestrator is coordinating specialist requests...")
 
             orchestrator_result = orchestrate_customer_packet(
                 customer_packet,
@@ -655,7 +674,7 @@ def handle_customer_query(user_input, thinking_container):
                         {
                             'agent': 'System',
                             'response': 'Orchestrator returned an invalid payload. Please retry this step.',
-                            'icon': 'ℹ️',
+                            'icon': '',
                             'css_class': 'system-message',
                             'exchange_format': 'json',
                         }
@@ -677,13 +696,13 @@ def handle_customer_query(user_input, thinking_container):
             
             # Show thinking steps based on what retail agent decided
             if (result.get('inventory_check') or {}).get('checked'):
-                add_thinking_step("📦 Checked internal MediaMarktSaturn inventory")
+                add_thinking_step("Checked internal inventory")
             
             if result.get('specialist_responses'):
                 specialists = [s['agent'] for s in result['specialist_responses']]
-                add_thinking_step(f"🔍 Consulted with: {', '.join(specialists)}")
+                add_thinking_step(f"Consulted with: {', '.join(specialists)}")
             
-            add_thinking_step("💬 Response ready!")
+            add_thinking_step("Response ready!")
             
             return {
                 'thinking': "\n\n".join(thinking_steps),
@@ -692,15 +711,15 @@ def handle_customer_query(user_input, thinking_container):
                 'specialist_responses': result['specialist_responses']
             }
         else:
-            add_thinking_step("⚠️ BuyBuddy not fully configured, using demo mode")
+            add_thinking_step("Assistant not fully configured, using demo mode")
             return {
                 'thinking': "\n\n".join(thinking_steps),
-                'main_response': f"BuyBuddy (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with our product and insurance teams as needed.",
+                'main_response': f"Assistant (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with product and insurance specialists as needed.",
                 'inventory_check': None,
                 'specialist_responses': []
             }
     except Exception as e:
-        add_thinking_step(f"❌ Error: {str(e)}")
+        add_thinking_step(f"Error: {str(e)}")
         return {
             'thinking': "\n\n".join(thinking_steps),
             'main_response': f"I apologize, but I encountered an error: {str(e)}",
@@ -712,18 +731,18 @@ def handle_customer_query(user_input, thinking_container):
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "BuyBuddy",
-        "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
+        "sender": "Assistant",
+        "content": "Hello! I'm your assistant. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": get_agent_icon('retail_agent')
     }]
 
 # Reset chat history button
-if st.sidebar.button("🔄 Reset Chat"):
+if st.sidebar.button("Reset Chat"):
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "BuyBuddy",
-        "content": "Hello! I'm your BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with our FridgeBuddy and InsuranceBuddy teams when needed. How can I assist you today?",
+        "sender": "Assistant",
+        "content": "Hello! I'm your assistant. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": get_agent_icon('retail_agent')
     }]
@@ -740,8 +759,8 @@ if st.sidebar.button("🔄 Reset Chat"):
 # Show quotation section only in final phase (Phase 5)
 if st.session_state.current_phase >= 5:
     st.sidebar.markdown("---")
-    st.sidebar.subheader("💰 Final Proposal")
-    if st.sidebar.button("📄 Generate Proposal", type="primary", use_container_width=True):
+    st.sidebar.subheader("Final Proposal")
+    if st.sidebar.button("Generate Proposal", type="primary", use_container_width=True):
         if len(st.session_state.messages) <= 1:
             st.sidebar.warning("Start a conversation first!")
         else:
@@ -756,9 +775,9 @@ if st.session_state.current_phase >= 5:
                         pdf_buffer = get_pdf_buffer(quotation_text)
                         
                         # Offer download
-                        st.success("✅ Ready!")
+                        st.success("Ready")
                         st.download_button(
-                            label="📥 Download PDF",
+                            label="Download PDF",
                             data=pdf_buffer,
                             file_name=f"proposal_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                             mime="application/pdf",
@@ -773,19 +792,24 @@ if st.session_state.current_phase >= 5:
 # Display chat messages
 for msg in st.session_state.messages:
     sender = msg.get("sender", "Unknown")
-    icon = msg.get("icon", "💬")
+    icon = msg.get("icon", "")
+    if "<img" not in str(icon):
+        icon = ""
     timestamp = msg.get("timestamp", "")
     content = msg.get("content", "")
     
     # Determine CSS class based on sender
     if msg["role"] == "user":
         css_class = "user-message"
-    elif "BuyBuddy" in sender:
+    elif "Assistant" in sender:
         css_class = "retail-message"
-    elif "FridgeBuddy" in sender:
+        icon = icon or get_agent_icon("assistant")
+    elif "Product Specialist" in sender:
         css_class = "product-message"
-    elif "InsuranceBuddy" in sender:
+        icon = get_agent_icon("product_specialist")
+    elif "Insurance Specialist" in sender:
         css_class = "insurance-message"
+        icon = get_agent_icon("insurance_specialist")
     else:
         css_class = "chat-message"
     
@@ -802,7 +826,7 @@ for msg in st.session_state.messages:
     
     # Show thinking process for agent messages if available
     if msg["role"] == "agent" and "thinking" in msg:
-        with st.expander("🧠 Agent Coordination Process", expanded=False):
+        with st.expander("Agent Coordination Process", expanded=False):
             st.markdown(msg["thinking"])
     
     # Show internal inventory check results when available
@@ -897,8 +921,8 @@ for msg in st.session_state.messages:
         st.markdown(f"""
         <div class="chat-message retail-message" style="border-left-color: #FF9800; background-color: rgba(255, 152, 0, 0.1);">
             <div class="sender-name">
-                <span>📦 <strong>Internal Inventory Check</strong></span>
-                <span class="specialist-badge" style="background-color: #FFE0B2; color: #E65100;">MediaMarktSaturn</span>
+                <span>{get_agent_icon('product_specialist')} <strong>Internal Inventory Check</strong></span>
+                <span class="specialist-badge" style="background-color: #FFE0B2; color: #E65100;">Internal Inventory</span>
             </div>
             <div class="message-content">
                 <strong>{inventory.get('summary', 'Inventory check completed')}</strong><br/>
@@ -913,14 +937,20 @@ for msg in st.session_state.messages:
     if msg["role"] == "agent" and msg.get("specialist_responses"):
         for specialist in msg.get("specialist_responses", []):
             specialist_sender = specialist.get("agent", "Specialist")
-            specialist_icon = specialist.get("icon", "💬")
+            specialist_icon = specialist.get("icon", "")
+            if "<img" not in str(specialist_icon):
+                specialist_icon = ""
             specialist_css = specialist.get("css_class", "chat-message")
             specialist_content = str(specialist.get("response", "")).strip()
 
             if "system" in str(specialist_sender).lower():
                 specialist_sender = "System"
                 specialist_css = "system-message"
-                specialist_icon = "ℹ️"
+                specialist_icon = ""
+            elif "product specialist" in str(specialist_sender).lower():
+                specialist_icon = get_agent_icon("product_specialist")
+            elif "insurance specialist" in str(specialist_sender).lower():
+                specialist_icon = get_agent_icon("insurance_specialist")
 
             if not specialist_content:
                 continue
@@ -962,20 +992,20 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
     </div>
     """, unsafe_allow_html=True)
     
-    # Get response from BuyBuddy
-    with st.status("🛒 BuyBuddy is working on your request...", expanded=True) as status:
+    # Get assistant response
+    with st.status("Assistant is working on your request...", expanded=True) as status:
         thinking_container = st.empty()
         
         # Handle the customer query
         result = handle_customer_query(prompt, thinking_container)
         
-        status.update(label="✅ Response ready!", state="complete", expanded=False)
+        status.update(label="Response ready", state="complete", expanded=False)
     
-    # Add BuyBuddy response to message history
+    # Add assistant response to message history
     response_time = datetime.now().strftime("%I:%M %p")
     agent_message = {
         "role": "agent",
-        "sender": "BuyBuddy",
+        "sender": "Assistant",
         "content": result['main_response'],
         "timestamp": response_time,
         "icon": get_agent_icon('retail_agent'),

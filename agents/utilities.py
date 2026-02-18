@@ -31,7 +31,7 @@ def parse_retail_state(response):
     Expected format in response:
     ---
     STATE: product_status=agreed | insurance_status=offered | overall_status=insurance_phase
-    ROUTING: product_agent|ergo_agent|none
+    ROUTING: product_agent|insurance_agent|none
     INVENTORY_CHECKED: true|false
     ITERATION_COUNT: 2
     ---
@@ -306,7 +306,7 @@ def validate_insurance_context(state, conversation_history):
 
 
 def validate_product_context(conversation_history):
-    """Validate minimum requirement coverage before routing to FridgeBuddy."""
+    """Validate minimum requirement coverage before routing to product specialist."""
     requirements = extract_requirements(conversation_history)
     has_budget = requirements.get("budget") is not None
     has_region = requirements.get("region") is not None
@@ -317,14 +317,14 @@ def validate_product_context(conversation_history):
 def get_agent_icon(agent_name):
     """Get the custom icon for an agent (PNG or fallback to emoji)."""
     icon_mapping = {
-        "retail_agent": ("buybuddy.png", "🛒"),
-        "buybuddy": ("buybuddy.png", "🛒"),
-        "fridgebuddy": ("fridgebuddy.png", "📦"),
-        "insurancebuddy": ("insurancebuddy.png", "🛡️"),
-        "customer": (None, "👤"),
+        "retail_agent": ("assistant.png", ""),
+        "assistant": ("assistant.png", ""),
+        "product_specialist": ("product-specialist.png", ""),
+        "insurance_specialist": ("insurance-specialist.png", ""),
+        "customer": ("assistant.png", ""),
     }
 
-    icon_file, emoji_fallback = icon_mapping.get(agent_name.lower(), (None, "💬"))
+    icon_file, emoji_fallback = icon_mapping.get(agent_name.lower(), (None, ""))
     if not icon_file:
         return emoji_fallback
 

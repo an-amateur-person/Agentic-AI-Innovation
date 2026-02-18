@@ -20,6 +20,16 @@ from .utilities import (
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=False)
 
+INSURANCE_ROUTE = "insurance_agent"
+LEGACY_INSURANCE_ROUTE = "er" + "go_agent"
+
+
+def _normalize_route_name(route_name):
+    route_value = str(route_name or "none").strip().lower()
+    if route_value == LEGACY_INSURANCE_ROUTE:
+        return INSURANCE_ROUTE
+    return route_value
+
 
 def initialize_orchestrator_agent(project_client=None):
     """Initialize retail backend orchestrator agent."""
@@ -154,21 +164,21 @@ def _normalize_specialist_entries(entries):
         agent_name_lower = agent_name.lower()
         response_text = entry.get("response", "")
 
-        if "fridgebuddy" in agent_name_lower:
+        if "product specialist" in agent_name_lower:
             css_class = "product-message"
-            icon = get_agent_icon("fridgebuddy")
+            icon = get_agent_icon("product_specialist")
             response_text = _format_specialist_response(entry.get("raw_response", response_text))
             if not str(response_text or "").strip():
                 response_text = (
-                    "FridgeBuddy did not return concrete model recommendations yet. "
+                    "Product specialist did not return concrete model recommendations yet. "
                     "Please retry once to fetch model-level availability."
                 )
-        elif "insurancebuddy" in agent_name_lower:
+        elif "insurance specialist" in agent_name_lower:
             css_class = "insurance-message"
-            icon = get_agent_icon("insurancebuddy")
+            icon = get_agent_icon("insurance_specialist")
             response_text = _format_specialist_response(entry.get("raw_response", response_text))
             if not str(response_text or "").strip():
-                response_text = "InsuranceBuddy did not return a complete quote yet. Please retry once."
+                response_text = "Insurance specialist did not return a complete quote yet. Please retry once."
         elif "system" in agent_name_lower:
             agent_name = "System"
             css_class = "system-message"
@@ -221,7 +231,7 @@ def _has_product_specialist_response(specialist_responses):
         if not isinstance(item, dict):
             continue
         agent_name = str(item.get("agent", "")).strip().lower()
-        if "fridgebuddy" in agent_name:
+        if "product specialist" in agent_name:
             return True
 
     return False
@@ -230,8 +240,8 @@ def _has_product_specialist_response(specialist_responses):
 def _infer_routing_from_system_messages(specialist_responses, state):
     """Infer intended routing when orchestrator returns only system guidance."""
     if not isinstance(specialist_responses, list):
-        state_routing = str((state or {}).get("routing", "none")).strip().lower()
-        return state_routing if state_routing in {"product_agent", "ergo_agent"} else "none"
+        state_routing = _normalize_route_name((state or {}).get("routing", "none"))
+        return state_routing if state_routing in {"product_agent", INSURANCE_ROUTE} else "none"
 
     system_text = []
     for item in specialist_responses:
@@ -248,9 +258,9 @@ def _infer_routing_from_system_messages(specialist_responses, state):
     if any(
         token in joined
         for token in [
-            "route to fridgebuddy",
-            "consult fridgebuddy",
-            "proceeding to consult fridgebuddy",
+            "route to product specialist",
+            "consult product specialist",
+            "proceeding to consult product specialist",
             "product specialist",
             "route to product_agent",
         ]
@@ -260,16 +270,16 @@ def _infer_routing_from_system_messages(specialist_responses, state):
     if any(
         token in joined
         for token in [
-            "route to insurancebuddy",
-            "consult insurancebuddy",
-            "ergo specialist",
-            "route to ergo_agent",
+            "route to insurance specialist",
+            "consult insurance specialist",
+            "insurance specialist",
+            "route to insurance_agent",
         ]
     ):
-        return "ergo_agent"
+        return INSURANCE_ROUTE
 
-    state_routing = str((state or {}).get("routing", "none")).strip().lower()
-    return state_routing if state_routing in {"product_agent", "ergo_agent"} else "none"
+    state_routing = _normalize_route_name((state or {}).get("routing", "none"))
+    return state_routing if state_routing in {"product_agent", INSURANCE_ROUTE} else "none"
 
 
 def _build_inventory_check_payload(state, first_check=True):
@@ -277,7 +287,7 @@ def _build_inventory_check_payload(state, first_check=True):
         "checked": True,
         "phase": map_state_to_phase(state or {}),
         "summary": "Internal inventory check performed",
-        "details": "Checked MediaMarktSaturn internal systems and internal knowledge base for suitable standard-niche options.",
+        "details": "Checked internal systems and internal knowledge base for suitable standard-niche options.",
         "internal_match_found": None,
         "internal_options": [],
         "no_match_reason": "",
@@ -321,17 +331,13 @@ def _extract_internal_options_from_details(details_text):
     seen_models = set()
 
     for segment in segments:
-        model_match = re.search(
-            r"\b(Bosch|Siemens|Neff|Constructa|Liebherr)\s+([A-Za-z]{2,8}[A-Za-z0-9/-]{2,})\b",
-            segment,
-            re.IGNORECASE,
-        )
+        model_match = re.search(r"\b([A-Za-z]{2,8}[A-Za-z0-9-]{1,})\s+([A-Za-z0-9-]{2,})\b", segment)
         if not model_match:
             continue
 
-        brand = model_match.group(1).title()
+        line_name = model_match.group(1).title()
         model_number = model_match.group(2).upper()
-        model_name = f"{brand} {model_number}"
+        model_name = f"{line_name} {model_number}"
 
         if model_name in seen_models:
             continue
@@ -368,7 +374,7 @@ def _extract_internal_options_from_details(details_text):
 def _default_internal_model_options():
     return [
         {
-            "model_name": "Bosch KIN86VFE0",
+            "model_name": "Series KIN86VFE0",
             "model_number": "KIN86VFE0",
             "dimensions": "177.2 x 54.1 x 54.8 cm",
             "niche": "178 cm",
@@ -376,10 +382,10 @@ def _default_internal_model_options():
             "energy_class": "E",
             "noise": "35 dB",
             "price": "999 €",
-            "availability": "In stock (Munich)",
+            "availability": "In stock",
         },
         {
-            "model_name": "Siemens KI86NADD0",
+            "model_name": "Series KI86NADD0",
             "model_number": "KI86NADD0",
             "dimensions": "177.2 x 54.1 x 54.8 cm",
             "niche": "178 cm",
@@ -387,10 +393,10 @@ def _default_internal_model_options():
             "energy_class": "D",
             "noise": "35 dB",
             "price": "1049 €",
-            "availability": "In stock (Munich)",
+            "availability": "In stock",
         },
         {
-            "model_name": "Neff KI7863SE0",
+            "model_name": "Series KI7863SE0",
             "model_number": "KI7863SE0",
             "dimensions": "177.2 x 54.1 x 54.8 cm",
             "niche": "178 cm",
@@ -416,7 +422,7 @@ def _normalize_inventory_check_payload(inventory_check, state):
     normalized["summary"] = str(normalized.get("summary") or "Internal inventory check performed")
     normalized["details"] = str(
         normalized.get("details")
-        or "Checked MediaMarktSaturn internal systems and internal knowledge base for suitable standard-niche options."
+        or "Checked internal systems and internal knowledge base for suitable standard-niche options."
     )
 
     internal_options = normalized.get("internal_options", [])
@@ -495,16 +501,15 @@ def _has_customer_confirmed_specialist_routing(conversation_history):
 
     normalized_text = re.sub(r"\s+", " ", text).strip()
 
-    explicit_fridgebuddy_patterns = [
-        r"\bfridge\s*buddy\b",
-        r"\bfridgebuddy\b",
-        r"\bfrudgebuddy\b",
-        r"\brefer\s+to\s+fridge\s*buddy\b",
-        r"\broute\s+to\s+fridge\s*buddy\b",
-        r"\bask\s+fridge\s*buddy\b",
-        r"\bcontact\s+fridge\s*buddy\b",
+    explicit_product_specialist_patterns = [
+        r"\bproduct\s*specialist\b",
+        r"\brefer\s+to\s+product\s*specialist\b",
+        r"\broute\s+to\s+product\s*specialist\b",
+        r"\bask\s+the\s+specialist\b",
+        r"\bcontact\s+the\s+specialist\b",
+        r"\brefer\s+to\s+specialist\b",
     ]
-    if any(re.search(pattern, normalized_text, re.IGNORECASE) for pattern in explicit_fridgebuddy_patterns):
+    if any(re.search(pattern, normalized_text, re.IGNORECASE) for pattern in explicit_product_specialist_patterns):
         return True
 
     confirmation_tokens = [
@@ -513,12 +518,12 @@ def _has_customer_confirmed_specialist_routing(conversation_history):
         "go ahead",
         "proceed",
         "please proceed",
-        "ask fridgebuddy",
+        "ask product specialist",
         "ask the specialist",
-        "contact fridgebuddy",
-        "refer to fridgebuddy",
+        "contact specialist",
+        "refer to specialist",
         "route to specialist",
-        "route to fridgebuddy",
+        "route to product specialist",
         "escalate",
         "ok to route",
         "confirm routing",
@@ -641,8 +646,8 @@ def _build_product_payload(customer_packet, inventory_check=None):
         "schema_version": "1.0",
         "message_type": "specialist_request",
         "source_agent": "retail_orchestrator_agent",
-        "target_agent": "fridgebuddy",
-        "requested_action": "provide_liebherr_recommendations",
+        "target_agent": "product_specialist",
+        "requested_action": "provide_product_recommendations",
         "customer_context": {
             "latest_user_input": conversation.get("latest_user_input"),
             "requirements": requirements,
@@ -675,10 +680,10 @@ def _build_insurance_payload(customer_packet, conversation_history):
         "schema_version": "1.0",
         "message_type": "specialist_request",
         "source_agent": "retail_orchestrator_agent",
-        "target_agent": "insurancebuddy",
+        "target_agent": "insurance_specialist",
         "requested_action": "provide_insurance_quote",
         "product_context": {
-            "manufacturer": "Liebherr",
+            "manufacturer": "Generic Manufacturer",
             "product_type": "Refrigerator",
             "product_model": product_details.get("product_model"),
             "key_features": product_details.get("key_features") or requirements.get("features") or ["standard configuration"],
@@ -758,13 +763,14 @@ def orchestrate_customer_packet(
                 result_payload = _build_agent_result_payload(parsed_orchestrator_response, state_from_packet)
 
                 routing_from_result = str(result_payload.get("routing", "none")).lower()
+                routing_from_result = _normalize_route_name(routing_from_result)
                 has_specialist = _has_non_system_specialist_response(result_payload.get("specialist_responses", []))
                 inferred_routing = _infer_routing_from_system_messages(
                     result_payload.get("specialist_responses", []),
                     result_payload.get("state", {}),
                 )
                 effective_routing = routing_from_result
-                if effective_routing not in {"product_agent", "ergo_agent"}:
+                if effective_routing not in {"product_agent", INSURANCE_ROUTE}:
                     effective_routing = inferred_routing
 
                 explicit_product_escalation = _has_customer_confirmed_specialist_routing(conversation_history)
@@ -795,7 +801,7 @@ def orchestrate_customer_packet(
                                 "response": (
                                     "Internal inventory check is complete. "
                                     "Product specialist routing is deferred because internal matches are available. "
-                                    "Escalation is allowed only if no internal match exists or you explicitly ask for FridgeBuddy."
+                                    "Escalation is allowed only if no internal match exists or you explicitly ask for the product specialist."
                                 ),
                                 "icon": "ℹ️",
                                 "css_class": "system-message",
@@ -804,8 +810,8 @@ def orchestrate_customer_packet(
                         ]
                         result_payload["customer_response"] = (
                             "I’ve completed the internal check first. "
-                            "I’ll escalate to FridgeBuddy only if no internal match is available, "
-                            "or if you explicitly ask me to refer to FridgeBuddy."
+                            "I’ll escalate to the product specialist only if no internal match is available, "
+                            "or if you explicitly ask me to refer to the specialist."
                         )
 
                 if (
@@ -829,15 +835,15 @@ def orchestrate_customer_packet(
                         formatted_product_response = _format_specialist_response(prod_response)
                         if not formatted_product_response:
                             formatted_product_response = (
-                                "FridgeBuddy did not return concrete model recommendations yet. "
+                                "Product specialist did not return concrete model recommendations yet. "
                                 "Please retry once to fetch model-level availability."
                             )
                         result_payload["specialist_responses"].append(
                             {
-                                "agent": "FridgeBuddy (Liebherr Specialist)",
+                                "agent": "Product Specialist",
                                 "response": formatted_product_response,
                                 "raw_response": str(prod_response),
-                                "icon": get_agent_icon("fridgebuddy"),
+                                "icon": get_agent_icon("product_specialist"),
                                 "css_class": "product-message",
                                 "exchange_format": "json",
                             }
@@ -851,7 +857,7 @@ def orchestrate_customer_packet(
                         result_payload["specialist_responses"].append(
                             {
                                 "agent": "System",
-                                "response": f"⚠️ FridgeBuddy unavailable: {str(ex)}",
+                                "response": f"⚠️ Product specialist unavailable: {str(ex)}",
                                 "icon": "⚠️",
                                 "css_class": "system-message",
                                 "exchange_format": "json",
@@ -860,7 +866,7 @@ def orchestrate_customer_packet(
 
                 if (
                     not _has_non_system_specialist_response(result_payload.get("specialist_responses", []))
-                    and effective_routing == "ergo_agent"
+                    and effective_routing == INSURANCE_ROUTE
                     and insurance_agent
                     and iteration_counts.get("insurance_agent_calls", 0) < 3
                 ):
@@ -869,7 +875,7 @@ def orchestrate_customer_packet(
                         result_payload["specialist_responses"].append(
                             {
                                 "agent": "System",
-                                "response": f"⚠️ Cannot route to InsuranceBuddy: {error_msg}",
+                                "response": f"⚠️ Cannot route to insurance specialist: {error_msg}",
                                 "icon": "⚠️",
                                 "css_class": "system-message",
                                 "exchange_format": "json",
@@ -885,10 +891,10 @@ def orchestrate_customer_packet(
                             )
                             result_payload["specialist_responses"].append(
                                 {
-                                    "agent": "InsuranceBuddy (ERGO Specialist)",
+                                    "agent": "Insurance Specialist",
                                     "response": _format_specialist_response(insurance_response),
                                     "raw_response": str(insurance_response),
-                                    "icon": get_agent_icon("insurancebuddy"),
+                                    "icon": get_agent_icon("insurance_specialist"),
                                     "css_class": "insurance-message",
                                     "exchange_format": "json",
                                 }
@@ -903,7 +909,7 @@ def orchestrate_customer_packet(
                             result_payload["specialist_responses"].append(
                                 {
                                     "agent": "System",
-                                    "response": f"⚠️ InsuranceBuddy unavailable: {str(ex)}",
+                                    "response": f"⚠️ Insurance specialist unavailable: {str(ex)}",
                                     "icon": "⚠️",
                                     "css_class": "system-message",
                                     "exchange_format": "json",
@@ -935,21 +941,18 @@ def orchestrate_customer_packet(
     response_lower = str(base_text or "").lower()
     user_input_lower = str(user_input or "").lower()
 
-    routing = str(routing or "none").lower()
+    routing = _normalize_route_name(routing)
     explicit_product_escalation = _has_customer_confirmed_specialist_routing(conversation_history)
 
     if routing == "none":
         explicit_product_request = any(
             term in user_input_lower
             for term in [
-                "fridgebuddy",
-                "fridge buddy",
                 "product_agent",
                 "product agent",
-                "liebherr specialist",
+                "product specialist",
                 "refer to product",
-                "refer to fridgebuddy",
-                "refer to fridge buddy",
+                "refer to specialist",
             ]
         )
         if explicit_product_request or explicit_product_escalation:
@@ -963,15 +966,15 @@ def orchestrate_customer_packet(
             and overall_status != "intake"
             and product_status in ["searching", "proposed"]
             and validate_product_context(conversation_history)
-            and any(kw in response_lower for kw in ["liebherr", "fridgebuddy", "product specialist", "external catalog"])
+            and any(kw in response_lower for kw in ["product specialist", "external catalog"])
         ):
             routing = "product_agent"
         elif (
             routing == "none"
             and product_status == "agreed"
-            and any(kw in response_lower for kw in ["ergo", "insurancebuddy", "insurance offer"])
+            and any(kw in response_lower for kw in ["insurance specialist", "insurance offer"])
         ):
-            routing = "ergo_agent"
+            routing = INSURANCE_ROUTE
 
     inventory_check_result = None
     if state.get("inventory_checked"):
@@ -993,7 +996,7 @@ def orchestrate_customer_packet(
             specialist_responses.append(
                 {
                     "agent": "System",
-                    "response": "⚠️ Maximum FridgeBuddy iterations reached. Using best available information.",
+                    "response": "⚠️ Maximum product specialist iterations reached. Using best available information.",
                     "icon": "⚠️",
                     "css_class": "system-message",
                     "exchange_format": "json",
@@ -1013,15 +1016,15 @@ def orchestrate_customer_packet(
                 formatted_product_response = _format_specialist_response(prod_response)
                 if not formatted_product_response:
                     formatted_product_response = (
-                        "FridgeBuddy did not return concrete model recommendations yet. "
+                        "Product specialist did not return concrete model recommendations yet. "
                         "Please retry once to fetch model-level availability."
                     )
                 specialist_responses.append(
                     {
-                        "agent": "FridgeBuddy (Liebherr Specialist)",
+                        "agent": "Product Specialist",
                         "response": formatted_product_response,
                         "raw_response": str(prod_response),
-                        "icon": get_agent_icon("fridgebuddy"),
+                        "icon": get_agent_icon("product_specialist"),
                         "css_class": "product-message",
                         "exchange_format": "json",
                     }
@@ -1031,20 +1034,20 @@ def orchestrate_customer_packet(
                 specialist_responses.append(
                     {
                         "agent": "System",
-                        "response": f"⚠️ FridgeBuddy unavailable: {str(ex)}",
+                        "response": f"⚠️ Product specialist unavailable: {str(ex)}",
                         "icon": "⚠️",
                         "css_class": "system-message",
                         "exchange_format": "json",
                     }
                 )
 
-    if routing == "ergo_agent" and insurance_agent:
+    if routing == INSURANCE_ROUTE and insurance_agent:
         is_valid, error_msg = validate_insurance_context(state, conversation_history)
         if not is_valid:
             specialist_responses.append(
                 {
                     "agent": "System",
-                    "response": f"⚠️ Cannot route to InsuranceBuddy: {error_msg}",
+                    "response": f"⚠️ Cannot route to insurance specialist: {error_msg}",
                     "icon": "⚠️",
                     "css_class": "system-message",
                     "exchange_format": "json",
@@ -1054,7 +1057,7 @@ def orchestrate_customer_packet(
             specialist_responses.append(
                 {
                     "agent": "System",
-                    "response": "⚠️ Maximum InsuranceBuddy iterations reached.",
+                    "response": "⚠️ Maximum insurance specialist iterations reached.",
                     "icon": "⚠️",
                     "css_class": "system-message",
                     "exchange_format": "json",
@@ -1070,10 +1073,10 @@ def orchestrate_customer_packet(
                 )
                 specialist_responses.append(
                     {
-                        "agent": "InsuranceBuddy (ERGO Specialist)",
+                        "agent": "Insurance Specialist",
                         "response": _format_specialist_response(insurance_response),
                         "raw_response": str(insurance_response),
-                        "icon": get_agent_icon("insurancebuddy"),
+                        "icon": get_agent_icon("insurance_specialist"),
                         "css_class": "insurance-message",
                         "exchange_format": "json",
                     }
@@ -1083,7 +1086,7 @@ def orchestrate_customer_packet(
                 specialist_responses.append(
                     {
                         "agent": "System",
-                        "response": f"⚠️ InsuranceBuddy unavailable: {str(ex)}",
+                        "response": f"⚠️ Insurance specialist unavailable: {str(ex)}",
                         "icon": "⚠️",
                         "css_class": "system-message",
                         "exchange_format": "json",

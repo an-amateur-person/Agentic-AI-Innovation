@@ -38,7 +38,7 @@ def initialize_product_agent():
 def get_product_response(user_input, agent, openai_client):
     """Get response from product agent"""
     if not agent:
-        return f"FridgeBuddy: Processing operations query - '{user_input}'"
+        return f"Product Specialist: Processing product query - '{user_input}'"
     
     try:
         response = openai_client.responses.create(
@@ -47,8 +47,8 @@ def get_product_response(user_input, agent, openai_client):
         )
         return response.output_text
     except Exception as e:
-        return f"FridgeBuddy Error: {str(e)}"
+        return f"Product Specialist Error: {str(e)}"
 
 if __name__ == "__main__":
     agent, client = initialize_product_agent()
-    print("FridgeBuddy initialized successfully")
+    print("Product Specialist initialized successfully")

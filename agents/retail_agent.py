@@ -36,7 +36,7 @@ def initialize_customer_facing_agent():
 def get_customer_facing_response(user_input, agent, openai_client, conversation_history=None):
     """Get response from customer-facing retail_agent."""
     if not agent:
-        return "retail_agent: Hello! I'm your MediaMarktSaturn sales assistant. How can I help you find the perfect product today?"
+        return "retail_agent: Hello! I'm your sales assistant. How can I help you find the right product today?"
 
     try:
         messages = []
