@@ -505,6 +505,7 @@ def _has_customer_confirmed_specialist_routing(conversation_history):
         r"\bproduct\s*specialist\b",
         r"\brefer\s+to\s+product\s*specialist\b",
         r"\broute\s+to\s+product\s*specialist\b",
+        r"\besc\w*\s+to\s+(the\s+)?(product\s+)?specialist\b",
         r"\bask\s+the\s+specialist\b",
         r"\bcontact\s+the\s+specialist\b",
         r"\brefer\s+to\s+specialist\b",
@@ -525,10 +526,21 @@ def _has_customer_confirmed_specialist_routing(conversation_history):
         "route to specialist",
         "route to product specialist",
         "escalate",
+        "esclaate",
+        "esclate",
+        "escalte",
         "ok to route",
         "confirm routing",
     ]
-    return any(token in normalized_text for token in confirmation_tokens)
+    if any(token in normalized_text for token in confirmation_tokens):
+        return True
+
+    specialist_terms = ["specialist", "product specialist"]
+    escalation_intent_terms = ["escalat", "escla", "route", "refer", "contact", "connect", "transfer"]
+    if any(term in normalized_text for term in specialist_terms) and any(term in normalized_text for term in escalation_intent_terms):
+        return True
+
+    return False
 
 
 def _has_failed_internal_option_agreement(state, inventory_check, conversation_history):
