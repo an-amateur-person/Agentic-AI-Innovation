@@ -458,7 +458,10 @@ with st.sidebar:
         if num < current_phase:
             phase_status.append(f"✅ {title}")
         elif num == current_phase:
-            phase_status.append(f"🔵 **{title}**")
+            if num == 5:
+                phase_status.append(f"✅ **{title}**")
+            else:
+                phase_status.append(f"🔵 **{title}**")
         else:
             phase_status.append(f"⚪ {title}")
     
