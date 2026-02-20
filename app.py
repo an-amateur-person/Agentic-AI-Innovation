@@ -39,6 +39,30 @@ def _safe_text(value):
     return str(value).strip() if value is not None else ""
 
 
+def _sanitize_proposal_text(text):
+    if not text:
+        return ""
+
+    disallowed_prefixes = (
+        "STATE:",
+        "ROUTING:",
+        "INVENTORY_CHECKED:",
+        "ITERATION_COUNT:",
+    )
+
+    cleaned_lines = []
+    for line in str(text).splitlines():
+        stripped = line.strip()
+        if any(stripped.upper().startswith(prefix) for prefix in disallowed_prefixes):
+            continue
+        if "STATE:" in stripped.upper() and "ROUTING:" in stripped.upper():
+            continue
+        cleaned_lines.append(line)
+
+    cleaned_text = "\n".join(cleaned_lines).strip()
+    return cleaned_text or str(text).strip()
+
+
 def _get_asset_icon_tag(file_name, alt_text, css_class="chat-icon-img"):
     icon_path = os.path.join(os.path.dirname(__file__), "assets", file_name)
     if not os.path.exists(icon_path):
@@ -540,7 +564,7 @@ Generate a comprehensive, professional product quotation document that consolida
                 input=[{"role": "user", "content": quotation_prompt}],
                 extra_body={"agent": {"name": agents['customer'].name, "type": "agent_reference"}},
             )
-            quotation_text = response.output_text
+            quotation_text = _sanitize_proposal_text(response.output_text)
             return quotation_text, None
         else:
             return None, "Customer-facing agent is not available to generate quotation."
