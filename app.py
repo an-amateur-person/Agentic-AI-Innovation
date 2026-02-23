@@ -163,6 +163,14 @@ custom_css = """
     font-weight: 600;
 }
 
+.title-subheading {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 400;
+    opacity: 0.9;
+    margin-top: 4px;
+}
+
 .title-icon {
     width: 60px;
     height: 60px;
@@ -296,7 +304,7 @@ else:
 st.markdown(f'''
 <div class="title-with-icon">
     {icon_html}
-    <h1>BuyBuddy - Your personal assistant</h1>
+    <h1>BuyBuddy<span class="title-subheading">Your personal shopping assistant</span></h1>
 </div>
 ''', unsafe_allow_html=True)
 
