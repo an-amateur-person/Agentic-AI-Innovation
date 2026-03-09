@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 from azure.ai.projects import AIProjectClient
 
 from .product_agent import get_product_response
-from .insurance_agent import get_insurance_response
+from .finance_agent import get_finance_response
 from .utilities import (
     create_azure_credential,
     map_state_to_phase,
     validate_product_context,
-    validate_insurance_context,
+    validate_finance_context,
     extract_requirements,
     extract_product_details,
     get_agent_icon,
@@ -20,15 +20,11 @@ from .utilities import (
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=False)
 
-INSURANCE_ROUTE = "insurance_agent"
-LEGACY_INSURANCE_ROUTE = "er" + "go_agent"
+FINANCE_ROUTE = "finance_agent"
 
 
 def _normalize_route_name(route_name):
-    route_value = str(route_name or "none").strip().lower()
-    if route_value == LEGACY_INSURANCE_ROUTE:
-        return INSURANCE_ROUTE
-    return route_value
+    return str(route_name or "none").strip().lower()
 
 
 def initialize_orchestrator_agent(project_client=None):
@@ -173,12 +169,12 @@ def _normalize_specialist_entries(entries):
                     "Product specialist did not return concrete model recommendations yet. "
                     "Please retry once to fetch model-level availability."
                 )
-        elif "insurance specialist" in agent_name_lower:
-            css_class = "insurance-message"
-            icon = get_agent_icon("insurance_specialist")
+        elif "finance specialist" in agent_name_lower:
+            css_class = "finance-message"
+            icon = get_agent_icon("finance_specialist")
             response_text = _format_specialist_response(entry.get("raw_response", response_text))
             if not str(response_text or "").strip():
-                response_text = "Insurance specialist did not return a complete quote yet. Please retry once."
+                response_text = "Finance specialist did not return a complete quote yet. Please retry once."
         elif "system" in agent_name_lower:
             agent_name = "System"
             css_class = "system-message"
@@ -241,7 +237,7 @@ def _infer_routing_from_system_messages(specialist_responses, state):
     """Infer intended routing when orchestrator returns only system guidance."""
     if not isinstance(specialist_responses, list):
         state_routing = _normalize_route_name((state or {}).get("routing", "none"))
-        return state_routing if state_routing in {"product_agent", INSURANCE_ROUTE} else "none"
+        return state_routing if state_routing in {"product_agent", FINANCE_ROUTE} else "none"
 
     system_text = []
     for item in specialist_responses:
@@ -270,16 +266,16 @@ def _infer_routing_from_system_messages(specialist_responses, state):
     if any(
         token in joined
         for token in [
-            "route to insurance specialist",
-            "consult insurance specialist",
-            "insurance specialist",
-            "route to insurance_agent",
+            "route to finance specialist",
+            "consult finance specialist",
+            "finance specialist",
+            "route to finance_agent",
         ]
     ):
-        return INSURANCE_ROUTE
+        return FINANCE_ROUTE
 
     state_routing = _normalize_route_name((state or {}).get("routing", "none"))
-    return state_routing if state_routing in {"product_agent", INSURANCE_ROUTE} else "none"
+    return state_routing if state_routing in {"product_agent", FINANCE_ROUTE} else "none"
 
 
 def _build_inventory_check_payload(state, first_check=True):
@@ -287,7 +283,7 @@ def _build_inventory_check_payload(state, first_check=True):
         "checked": True,
         "phase": map_state_to_phase(state or {}),
         "summary": "Internal inventory check performed",
-        "details": "Checked internal systems and internal knowledge base for suitable standard-niche options.",
+        "details": "Checked internal systems and internal knowledge base for suitable beauty-tech options.",
         "internal_match_found": None,
         "internal_options": [],
         "no_match_reason": "",
@@ -348,10 +344,10 @@ def _extract_internal_options_from_details(details_text):
             segment,
             re.IGNORECASE,
         )
-        niche_match = re.search(r"(niche\s*:?\s*\d{2,3}(?:[\.,]\d)?\s*cm)", segment, re.IGNORECASE)
-        capacity_match = re.search(r"(\d{2,3}\s*l)\b", segment, re.IGNORECASE)
-        energy_match = re.search(r"\b(?:energy\s*class\s*)?([A-F])\b", segment, re.IGNORECASE)
-        noise_match = re.search(r"(\d{2}\s*dB\(?A?\)?)", segment, re.IGNORECASE)
+        concern_match = re.search(r"(skin\s*concern\s*:?\s*[A-Za-z\-/ ]{3,40})", segment, re.IGNORECASE)
+        runtime_match = re.search(r"(\d{1,2}\s*(?:h|hours?|min|minutes?))\b", segment, re.IGNORECASE)
+        technology_match = re.search(r"(LED|microcurrent|ultrasonic|RF|radio\s*frequency|ionic)", segment, re.IGNORECASE)
+        intensity_match = re.search(r"(\d{1,2}\s*(?:levels?|modes?))", segment, re.IGNORECASE)
         price_match = re.search(r"((?:~|ca\.?\s*)?\d{3,4}(?:[\.,]\d{2})?\s*€)", segment, re.IGNORECASE)
 
         options.append(
@@ -359,10 +355,10 @@ def _extract_internal_options_from_details(details_text):
                 "model_name": model_name,
                 "model_number": model_number,
                 "dimensions": dimensions_match.group(1) if dimensions_match else None,
-                "niche": niche_match.group(1) if niche_match else None,
-                "capacity": capacity_match.group(1) if capacity_match else None,
-                "energy_class": energy_match.group(1).upper() if energy_match else None,
-                "noise": noise_match.group(1) if noise_match else None,
+                "skin_concern": concern_match.group(1) if concern_match else None,
+                "runtime": runtime_match.group(1) if runtime_match else None,
+                "technology": technology_match.group(1).upper() if technology_match else None,
+                "intensity": intensity_match.group(1) if intensity_match else None,
                 "price": price_match.group(1) if price_match else None,
                 "availability": "Available in internal stock",
             }
@@ -374,35 +370,35 @@ def _extract_internal_options_from_details(details_text):
 def _default_internal_model_options():
     return [
         {
-            "model_name": "Series KIN86VFE0",
-            "model_number": "KIN86VFE0",
-            "dimensions": "177.2 x 54.1 x 54.8 cm",
-            "niche": "178 cm",
-            "capacity": "260 l",
-            "energy_class": "E",
-            "noise": "35 dB",
+            "model_name": "GlowPulse Pro",
+            "model_number": "GP-PRO-01",
+            "dimensions": "18 x 4 x 4 cm",
+            "skin_concern": "Firming and anti-aging",
+            "runtime": "2 hours",
+            "technology": "MICROCURRENT",
+            "intensity": "5 levels",
             "price": "999 €",
             "availability": "In stock",
         },
         {
-            "model_name": "Series KI86NADD0",
-            "model_number": "KI86NADD0",
-            "dimensions": "177.2 x 54.1 x 54.8 cm",
-            "niche": "178 cm",
-            "capacity": "260 l",
-            "energy_class": "D",
-            "noise": "35 dB",
+            "model_name": "Radiance LED Mask",
+            "model_number": "RLM-200",
+            "dimensions": "22 x 18 x 8 cm",
+            "skin_concern": "Acne care and glow",
+            "runtime": "60 minutes",
+            "technology": "LED",
+            "intensity": "3 modes",
             "price": "1049 €",
             "availability": "In stock",
         },
         {
-            "model_name": "Series KI7863SE0",
-            "model_number": "KI7863SE0",
-            "dimensions": "177.2 x 54.1 x 54.8 cm",
-            "niche": "178 cm",
-            "capacity": "267 l",
-            "energy_class": "E",
-            "noise": "35 dB",
+            "model_name": "DermaWave Cleanse",
+            "model_number": "DWC-310",
+            "dimensions": "16 x 5 x 3 cm",
+            "skin_concern": "Deep cleansing",
+            "runtime": "90 minutes",
+            "technology": "ULTRASONIC",
+            "intensity": "4 levels",
             "price": "1099 €",
             "availability": "Limited stock",
         },
@@ -422,7 +418,7 @@ def _normalize_inventory_check_payload(inventory_check, state):
     normalized["summary"] = str(normalized.get("summary") or "Internal inventory check performed")
     normalized["details"] = str(
         normalized.get("details")
-        or "Checked internal systems and internal knowledge base for suitable standard-niche options."
+        or "Checked internal systems and internal knowledge base for suitable beauty-tech options."
     )
 
     internal_options = normalized.get("internal_options", [])
@@ -684,7 +680,7 @@ def _build_product_payload(customer_packet, inventory_check=None):
     }
 
 
-def _build_insurance_payload(customer_packet, conversation_history):
+def _build_finance_payload(customer_packet, conversation_history):
     requirements = extract_requirements(conversation_history)
     product_details = extract_product_details(conversation_history)
 
@@ -692,14 +688,14 @@ def _build_insurance_payload(customer_packet, conversation_history):
         "schema_version": "1.0",
         "message_type": "specialist_request",
         "source_agent": "retail_orchestrator_agent",
-        "target_agent": "insurance_specialist",
-        "requested_action": "provide_insurance_quote",
+        "target_agent": "finance_specialist",
+        "requested_action": "provide_finance_quote",
         "product_context": {
-            "manufacturer": "Generic Manufacturer",
-            "product_type": "Refrigerator",
+            "manufacturer": "GlowBi",
+            "product_type": "BeautyTech Device",
             "product_model": product_details.get("product_model"),
-            "key_features": product_details.get("key_features") or requirements.get("features") or ["standard configuration"],
-            "configuration_class": "Standard",
+            "key_features": product_details.get("key_features") or requirements.get("features") or ["beauty-tech configuration"],
+            "configuration_class": "BeautyTech",
         },
         "pricing_context": {
             "purchase_price": requirements.get("budget", "TBD"),
@@ -743,7 +739,7 @@ def orchestrate_customer_packet(
     orchestrator_agent=None,
     orchestrator_client=None,
     product_agent=None,
-    insurance_agent=None,
+    finance_agent=None,
     conversation_history=None,
     iteration_counts=None,
 ):
@@ -782,7 +778,7 @@ def orchestrate_customer_packet(
                     result_payload.get("state", {}),
                 )
                 effective_routing = routing_from_result
-                if effective_routing not in {"product_agent", INSURANCE_ROUTE}:
+                if effective_routing not in {"product_agent", FINANCE_ROUTE}:
                     effective_routing = inferred_routing
 
                 explicit_product_escalation = _has_customer_confirmed_specialist_routing(conversation_history)
@@ -878,16 +874,16 @@ def orchestrate_customer_packet(
 
                 if (
                     not _has_non_system_specialist_response(result_payload.get("specialist_responses", []))
-                    and effective_routing == INSURANCE_ROUTE
-                    and insurance_agent
-                    and iteration_counts.get("insurance_agent_calls", 0) < 3
+                    and effective_routing == FINANCE_ROUTE
+                    and finance_agent
+                    and iteration_counts.get("finance_agent_calls", 0) < 3
                 ):
-                    is_valid, error_msg = validate_insurance_context(result_payload.get("state", {}), conversation_history)
+                    is_valid, error_msg = validate_finance_context(result_payload.get("state", {}), conversation_history)
                     if not is_valid:
                         result_payload["specialist_responses"].append(
                             {
                                 "agent": "System",
-                                "response": f"⚠️ Cannot route to insurance specialist: {error_msg}",
+                                "response": f"⚠️ Cannot route to finance specialist: {error_msg}",
                                 "icon": "⚠️",
                                 "css_class": "system-message",
                                 "exchange_format": "json",
@@ -895,23 +891,23 @@ def orchestrate_customer_packet(
                         )
                     else:
                         try:
-                            payload = _build_insurance_payload(customer_packet, conversation_history)
-                            insurance_response = get_insurance_response(
+                            payload = _build_finance_payload(customer_packet, conversation_history)
+                            finance_response = get_finance_response(
                                 payload,
-                                insurance_agent[0],
-                                insurance_agent[1],
+                                finance_agent[0],
+                                finance_agent[1],
                             )
                             result_payload["specialist_responses"].append(
                                 {
-                                    "agent": "Insurance Specialist",
-                                    "response": _format_specialist_response(insurance_response),
-                                    "raw_response": str(insurance_response),
-                                    "icon": get_agent_icon("insurance_specialist"),
-                                    "css_class": "insurance-message",
+                                    "agent": "Finance Specialist",
+                                    "response": _format_specialist_response(finance_response),
+                                    "raw_response": str(finance_response),
+                                    "icon": get_agent_icon("finance_specialist"),
+                                    "css_class": "finance-message",
                                     "exchange_format": "json",
                                 }
                             )
-                            iteration_counts["insurance_agent_calls"] = iteration_counts.get("insurance_agent_calls", 0) + 1
+                            iteration_counts["finance_agent_calls"] = iteration_counts.get("finance_agent_calls", 0) + 1
                             result_payload["customer_response"] = _build_user_summary(
                                 result_payload.get("customer_response", ""),
                                 result_payload.get("specialist_responses", []),
@@ -921,7 +917,7 @@ def orchestrate_customer_packet(
                             result_payload["specialist_responses"].append(
                                 {
                                     "agent": "System",
-                                    "response": f"⚠️ Insurance specialist unavailable: {str(ex)}",
+                                    "response": f"⚠️ Finance specialist unavailable: {str(ex)}",
                                     "icon": "⚠️",
                                     "css_class": "system-message",
                                     "exchange_format": "json",
@@ -984,9 +980,9 @@ def orchestrate_customer_packet(
         elif (
             routing == "none"
             and product_status == "agreed"
-            and any(kw in response_lower for kw in ["insurance specialist", "insurance offer"])
+            and any(kw in response_lower for kw in ["finance specialist", "finance offer"])
         ):
-            routing = INSURANCE_ROUTE
+            routing = FINANCE_ROUTE
 
     inventory_check_result = None
     if state.get("inventory_checked"):
@@ -1053,23 +1049,23 @@ def orchestrate_customer_packet(
                     }
                 )
 
-    if routing == INSURANCE_ROUTE and insurance_agent:
-        is_valid, error_msg = validate_insurance_context(state, conversation_history)
+    if routing == FINANCE_ROUTE and finance_agent:
+        is_valid, error_msg = validate_finance_context(state, conversation_history)
         if not is_valid:
             specialist_responses.append(
                 {
                     "agent": "System",
-                    "response": f"⚠️ Cannot route to insurance specialist: {error_msg}",
+                    "response": f"⚠️ Cannot route to finance specialist: {error_msg}",
                     "icon": "⚠️",
                     "css_class": "system-message",
                     "exchange_format": "json",
                 }
             )
-        elif iteration_counts.get("insurance_agent_calls", 0) >= 3:
+        elif iteration_counts.get("finance_agent_calls", 0) >= 3:
             specialist_responses.append(
                 {
                     "agent": "System",
-                    "response": "⚠️ Maximum insurance specialist iterations reached.",
+                    "response": "⚠️ Maximum finance specialist iterations reached.",
                     "icon": "⚠️",
                     "css_class": "system-message",
                     "exchange_format": "json",
@@ -1077,28 +1073,28 @@ def orchestrate_customer_packet(
             )
         else:
             try:
-                payload = _build_insurance_payload(customer_packet, conversation_history)
-                insurance_response = get_insurance_response(
+                payload = _build_finance_payload(customer_packet, conversation_history)
+                finance_response = get_finance_response(
                     payload,
-                    insurance_agent[0],
-                    insurance_agent[1],
+                    finance_agent[0],
+                    finance_agent[1],
                 )
                 specialist_responses.append(
                     {
-                        "agent": "Insurance Specialist",
-                        "response": _format_specialist_response(insurance_response),
-                        "raw_response": str(insurance_response),
-                        "icon": get_agent_icon("insurance_specialist"),
-                        "css_class": "insurance-message",
+                        "agent": "Finance Specialist",
+                        "response": _format_specialist_response(finance_response),
+                        "raw_response": str(finance_response),
+                        "icon": get_agent_icon("finance_specialist"),
+                        "css_class": "finance-message",
                         "exchange_format": "json",
                     }
                 )
-                iteration_counts["insurance_agent_calls"] = iteration_counts.get("insurance_agent_calls", 0) + 1
+                iteration_counts["finance_agent_calls"] = iteration_counts.get("finance_agent_calls", 0) + 1
             except Exception as ex:
                 specialist_responses.append(
                     {
                         "agent": "System",
-                        "response": f"⚠️ Insurance specialist unavailable: {str(ex)}",
+                        "response": f"⚠️ Finance specialist unavailable: {str(ex)}",
                         "icon": "⚠️",
                         "css_class": "system-message",
                         "exchange_format": "json",

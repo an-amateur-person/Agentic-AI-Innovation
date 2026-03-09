@@ -30,8 +30,8 @@ def parse_retail_state(response):
 
     Expected format in response:
     ---
-    STATE: product_status=agreed | insurance_status=offered | overall_status=insurance_phase
-    ROUTING: product_agent|insurance_agent|none
+    STATE: product_status=agreed | finance_status=offered | overall_status=finance_phase
+    ROUTING: product_agent|finance_agent|none
     INVENTORY_CHECKED: true|false
     ITERATION_COUNT: 2
     ---
@@ -40,7 +40,7 @@ def parse_retail_state(response):
     """
     default_state = {
         "product_status": "collecting",
-        "insurance_status": "not_offered",
+        "finance_status": "not_offered",
         "overall_status": "intake",
         "routing": "none",
         "inventory_checked": False,
@@ -66,13 +66,13 @@ def parse_retail_state(response):
             return default_state
 
         state_match = re.search(
-            r"STATE:\s*product_status=([\w-]+)\s*\|\s*insurance_status=([\w-]+)\s*\|\s*overall_status=([\w-]+)",
+            r"STATE:\s*product_status=([\w-]+)\s*\|\s*finance_status=([\w-]+)\s*\|\s*overall_status=([\w-]+)",
             metadata,
             re.IGNORECASE,
         )
         if state_match:
             default_state["product_status"] = state_match.group(1).lower()
-            default_state["insurance_status"] = state_match.group(2).lower()
+            default_state["finance_status"] = state_match.group(2).lower()
             default_state["overall_status"] = state_match.group(3).lower()
 
         routing_match = re.search(r"ROUTING:\s*([\w-]+)", metadata, re.IGNORECASE)
@@ -155,7 +155,14 @@ def extract_requirements(conversation_history):
             requirements["region"] = region.title()
             break
 
-    features = ["ice maker", "water dispenser", "french door", "energy efficient", "smart"]
+    features = [
+        "led therapy",
+        "microcurrent",
+        "ultrasonic cleansing",
+        "anti-aging",
+        "rechargeable",
+        "smart app",
+    ]
     requirements["features"] = [feature for feature in features if feature in text_lower]
 
     return requirements
@@ -169,7 +176,7 @@ def map_state_to_phase(state):
         "intake": 1,
         "inventory_check": 2,
         "product_negotiation": 3,
-        "insurance_phase": 4,
+        "finance_phase": 4,
         "ready_to_checkout": 5,
         "stopped": 5,
     }
@@ -220,16 +227,16 @@ def extract_product_details(conversation_history):
                 break
 
     feature_keywords = [
-        "ice maker",
-        "water dispenser",
-        "french door",
-        "energy efficient",
-        "energy-efficient",
-        "no frost",
-        "a+++",
-        "nofrost",
-        "biofresh",
-        "smart",
+        "led therapy",
+        "microcurrent",
+        "ultrasonic",
+        "anti-aging",
+        "anti aging",
+        "acne care",
+        "firming",
+        "rechargeable",
+        "smart app",
+        "portable",
     ]
 
     extracted_features = [feature for feature in feature_keywords if feature in text_lower]
@@ -289,10 +296,10 @@ def extract_product_details(conversation_history):
     return product_details
 
 
-def validate_insurance_context(state, conversation_history):
-    """Validate that required fields are present before routing to insurance."""
+def validate_finance_context(state, conversation_history):
+    """Validate that required fields are present before routing to finance."""
     if state.get("product_status") != "agreed":
-        return False, "Product not yet agreed - cannot offer insurance"
+        return False, "Product not yet agreed - cannot offer financing"
 
     requirements = extract_requirements(conversation_history)
     if not requirements.get("budget"):
@@ -300,10 +307,9 @@ def validate_insurance_context(state, conversation_history):
 
     product_details = extract_product_details(conversation_history)
     if not product_details.get("product_model"):
-        return False, "Product model not confirmed - please confirm selected model before insurance"
+        return False, "Product model not confirmed - please confirm selected model before financing"
 
     return True, None
-
 
 def validate_product_context(conversation_history):
     """Validate minimum requirement coverage before routing to product specialist."""
@@ -317,11 +323,10 @@ def validate_product_context(conversation_history):
 def get_agent_icon(agent_name):
     """Get the custom icon for an agent (PNG or fallback to emoji)."""
     icon_mapping = {
-        "retail_agent": ("assistant.png", ""),
-        "assistant": ("assistant.png", ""),
-        "product_specialist": ("product-specialist.png", ""),
-        "insurance_specialist": ("insurance-specialist.png", ""),
-        "customer": ("assistant.png", ""),
+        "retail_agent": ("Ceconomy.png", ""),
+        "assistant": ("Ceconomy.png", ""),
+        "product_specialist": ("Beiersdorf.png", ""),
+        "finance_specialist": ("DZBank.png", ""),
     }
 
     icon_file, emoji_fallback = icon_mapping.get(agent_name.lower(), (None, ""))

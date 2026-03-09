@@ -1,7 +1,9 @@
 import streamlit as st
 import os
+import json
 import html
 import base64
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dotenv import load_dotenv
 from datetime import datetime
 from io import BytesIO
@@ -12,9 +14,9 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 
 from agents.retail_agent import initialize_customer_facing_agent, collect_customer_input_packet
 from agents.retail_orchestrator_agent import initialize_orchestrator_agent, orchestrate_customer_packet
-from agents.utilities import map_state_to_phase
+from agents.utilities import map_state_to_phase, extract_product_details
 from agents.product_agent import initialize_product_agent
-from agents.insurance_agent import initialize_insurance_agent
+from agents.finance_agent import initialize_finance_agent
 
 # Load environment variables from .env file
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
@@ -27,7 +29,7 @@ REQUIRED_ENV_VARS = [
     "AGENT_RETAIL",
     "AGENT_ORCHESTRATOR",
     "AGENT_PRODUCT",
-    "AGENT_INSURANCE",
+    "AGENT_FINANCE",
 ]
 
 
@@ -78,10 +80,10 @@ def _get_asset_icon_tag(file_name, alt_text, css_class="chat-icon-img"):
 def _build_inventory_profile_from_options(internal_options):
     profile = {
         "brands": [],
-        "energy_classes": [],
-        "niche_values": [],
-        "capacity_values": [],
-        "noise_values": [],
+        "technology_values": [],
+        "skin_concern_values": [],
+        "runtime_values": [],
+        "intensity_values": [],
         "price_values": [],
     }
 
@@ -101,14 +103,22 @@ def _build_inventory_profile_from_options(internal_options):
                 profile["brands"].append(maybe_brand)
 
         for source_key, target_key in [
-            ("energy_class", "energy_classes"),
-            ("energy", "energy_classes"),
-            ("niche", "niche_values"),
-            ("niche_height", "niche_values"),
-            ("capacity", "capacity_values"),
-            ("volume", "capacity_values"),
-            ("noise", "noise_values"),
-            ("noise_level", "noise_values"),
+            ("technology", "technology_values"),
+            ("tech_type", "technology_values"),
+            ("energy_class", "technology_values"),
+            ("energy", "technology_values"),
+            ("skin_concern", "skin_concern_values"),
+            ("concern", "skin_concern_values"),
+            ("niche", "skin_concern_values"),
+            ("niche_height", "skin_concern_values"),
+            ("runtime", "runtime_values"),
+            ("battery_life", "runtime_values"),
+            ("capacity", "runtime_values"),
+            ("volume", "runtime_values"),
+            ("intensity", "intensity_values"),
+            ("mode", "intensity_values"),
+            ("noise", "intensity_values"),
+            ("noise_level", "intensity_values"),
             ("price", "price_values"),
             ("base_price", "price_values"),
         ]:
@@ -118,17 +128,111 @@ def _build_inventory_profile_from_options(internal_options):
 
     return profile
 
+
+def _is_add_to_cart_intent(user_text):
+    text = str(user_text or "").lower()
+    if not text:
+        return False
+
+    add_tokens = [
+        "add to cart",
+        "add this to cart",
+        "put in cart",
+        "add it to cart",
+        "add to basket",
+        "put this in basket",
+        "buy this",
+    ]
+    return any(token in text for token in add_tokens)
+
+
+def _extract_cart_item_name_from_result(result_payload):
+    if not isinstance(result_payload, dict):
+        return None
+
+    inventory_check = result_payload.get("inventory_check") or {}
+    if isinstance(inventory_check, dict):
+        internal_options = inventory_check.get("internal_options") or []
+        if isinstance(internal_options, list):
+            for option in internal_options:
+                if not isinstance(option, dict):
+                    continue
+                model_name = _safe_text(option.get("model_name") or option.get("name") or option.get("model_number"))
+                if model_name:
+                    return model_name
+
+    specialist_responses = result_payload.get("specialist_responses") or []
+    if isinstance(specialist_responses, list):
+        for specialist in specialist_responses:
+            if not isinstance(specialist, dict):
+                continue
+            raw_payload = specialist.get("raw_response") or specialist.get("response")
+            if not raw_payload:
+                continue
+            parsed = None
+            if isinstance(raw_payload, dict):
+                parsed = raw_payload
+            else:
+                try:
+                    parsed = json.loads(str(raw_payload))
+                except Exception:
+                    parsed = None
+            if not isinstance(parsed, dict):
+                continue
+
+            recommended = parsed.get("recommended_models")
+            if isinstance(recommended, list) and recommended:
+                first_model = recommended[0] if isinstance(recommended[0], dict) else {}
+                model_name = _safe_text(
+                    first_model.get("model_name")
+                    or first_model.get("model_number")
+                    or parsed.get("product_model")
+                )
+                if model_name:
+                    return model_name
+
+            model_name = _safe_text(parsed.get("product_model") or parsed.get("model_name") or parsed.get("model_number"))
+            if model_name:
+                return model_name
+
+    state_payload = result_payload.get("state") or {}
+    if isinstance(state_payload, dict):
+        model_name = _safe_text(
+            state_payload.get("product_model")
+            or state_payload.get("selected_product")
+            or state_payload.get("selected_model")
+            or state_payload.get("agreed_model")
+        )
+        if model_name:
+            return model_name
+
+    return None
+
+
+def _add_item_to_cart(item_name):
+    name = _safe_text(item_name)
+    if not name:
+        return False
+
+    if "cart_items" not in st.session_state:
+        st.session_state.cart_items = []
+
+    for entry in st.session_state.cart_items:
+        if _safe_text(entry.get("name")).lower() == name.lower():
+            entry["quantity"] = int(entry.get("quantity", 1)) + 1
+            return True
+
+    st.session_state.cart_items.append({"name": name, "quantity": 1})
+    return True
+
 # Helper function to get icon (assets only)
 def get_agent_icon(agent_name):
     """Get base64 encoded image for agent icon from assets only."""
     icon_mapping = {
-        'retail_agent': 'assistant.png',
-        'assistant': 'assistant.png',
-        'orchestrator': 'assistant.png',
-        'retail_orchestrator_agent': 'assistant.png',
-        'product_specialist': 'product-specialist.png',
-        'insurance_specialist': 'insurance-specialist.png',
-        'customer': 'assistant.png',
+        'retail_agent': 'Ceconomy.png',
+        'assistant': 'Ceconomy.png',
+        'product_specialist': 'Beiersdorf.png',
+        'finance_specialist': 'DZBank.png',
     }
     icon_file = icon_mapping.get(str(agent_name or "").lower())
     if not icon_file:
@@ -143,7 +247,7 @@ def get_agent_label_with_icon(agent_name, icon_key):
     return html.escape(agent_name)
 
 # Webpage configurations
-page_icon_path = os.path.join(os.path.dirname(__file__), "assets", "assistant.png")
+page_icon_path = os.path.join(os.path.dirname(__file__), "assets", "Ceconomy.png")
 st.set_page_config(page_title="Agentic AI System Interface", page_icon=page_icon_path if os.path.exists(page_icon_path) else None)
 
 # Define custom CSS for styling
@@ -227,7 +331,8 @@ custom_css = """
     border-left-color: #FFC107;
 }
 
-.insurance-message {
+.finance-message,
+.finance-message {
     border-left-color: #F44336;
 }
 
@@ -284,6 +389,85 @@ custom_css = """
     vertical-align: text-bottom;
     margin-right: 4px;
 }
+
+/* Sidebar agent cards */
+.agent-status-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.agent-status-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    transition: all 0.2s ease;
+}
+
+.agent-status-card .agent-name {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.agent-status-card .chat-icon-img {
+    width: 30px;
+    height: 30px;
+    margin-right: 0;
+}
+
+.agent-status-card.active {
+    background: rgba(33, 150, 243, 0.18);
+    border-color: rgba(33, 150, 243, 0.55);
+    box-shadow: 0 0 0 1px rgba(33, 150, 243, 0.35) inset;
+}
+
+.agent-status-card.active .agent-name {
+    color: #FFFFFF;
+}
+
+.agent-status-card.inactive {
+    background: rgba(158, 158, 158, 0.12);
+    border-color: rgba(158, 158, 158, 0.26);
+}
+
+.agent-status-card.inactive .agent-name {
+    color: #9E9E9E;
+}
+
+.agent-status-card.inactive .chat-icon-img {
+    filter: grayscale(100%);
+    opacity: 0.5;
+}
+
+.cart-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cart-row {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+
+.cart-row .cart-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #FFFFFF;
+}
+
+.cart-row .cart-qty {
+    font-size: 0.8rem;
+    color: #BDBDBD;
+}
 </style>
 """
 
@@ -291,7 +475,7 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # Display title with icon
-icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'assistant.png')
+icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'Ceconomy.png')
 if os.path.exists(icon_path):
     # Read and encode the image for display
     with open(icon_path, 'rb') as f:
@@ -304,11 +488,11 @@ else:
 st.markdown(f'''
 <div class="title-with-icon">
     {icon_html}
-    <h1>BuyBuddy<span class="title-subheading">Your personal shopping assistant</span></h1>
+    <h1>SkinTech<span class="title-subheading">Your personal BeautyTech Shopping Assistant </span></h1>
 </div>
 ''', unsafe_allow_html=True)
 
-st.write("Welcome! I'm BuyBuddy. Ask me anything, and I'll coordinate with specialized teams when needed.")
+st.write("Hi Beautiful! Ask me anything, and I'll coordinate with specialized teams when needed.")
 
 # Initialize all agents
 @st.cache_resource
@@ -317,11 +501,22 @@ def initialize_all_agents():
     agents = {}
     clients = {}
     errors = {}
+
+    def run_with_timeout(func, timeout_seconds, *args, **kwargs):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func, *args, **kwargs)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except FuturesTimeoutError:
+                raise TimeoutError(f"Timed out after {timeout_seconds}s while running {func.__name__}")
     
     try:
         # Initialize Customer-facing retail_agent
         try:
-            customer_agent, customer_client, project_client = initialize_customer_facing_agent()
+            customer_agent, customer_client, project_client = run_with_timeout(
+                initialize_customer_facing_agent,
+                25,
+            )
             agents['customer'] = customer_agent
             clients['customer'] = customer_client
             clients['project'] = project_client
@@ -333,7 +528,11 @@ def initialize_all_agents():
 
         # Initialize Backend Orchestrator retail_agent
         try:
-            orchestrator_agent, orchestrator_client = initialize_orchestrator_agent(clients.get('project'))
+            orchestrator_agent, orchestrator_client = run_with_timeout(
+                initialize_orchestrator_agent,
+                20,
+                clients.get('project'),
+            )
             agents['orchestrator'] = orchestrator_agent
             clients['orchestrator'] = orchestrator_client
             if orchestrator_agent is None:
@@ -344,7 +543,10 @@ def initialize_all_agents():
         
         # Initialize Product Agent (specialist)
         try:
-            mfg_agent, mfg_client = initialize_product_agent()
+            mfg_agent, mfg_client = run_with_timeout(
+                initialize_product_agent,
+                20,
+            )
             agents['product'] = mfg_agent
             clients['product'] = mfg_client
             if mfg_agent is None:
@@ -353,16 +555,19 @@ def initialize_all_agents():
             agents['product'] = None
             errors['product'] = str(e)
         
-        # Initialize Insurance Agent (specialist)
+        # Initialize Finance Agent (specialist)
         try:
-            insurance_agent, insurance_client = initialize_insurance_agent()
-            agents['insurance'] = insurance_agent
-            clients['insurance'] = insurance_client
-            if insurance_agent is None:
-                errors['insurance'] = "Agent not found or inaccessible. Verify AGENT_INSURANCE and Azure permissions."
+            finance_agent, finance_client = run_with_timeout(
+                initialize_finance_agent,
+                20,
+            )
+            agents['finance'] = finance_agent
+            clients['finance'] = finance_client
+            if finance_agent is None:
+                errors['finance'] = "Agent not found or inaccessible. Verify AGENT_FINANCE and Azure permissions."
         except Exception as e:
-            agents['insurance'] = None
-            errors['insurance'] = str(e)
+            agents['finance'] = None
+            errors['finance'] = str(e)
             
     except Exception as e:
         errors['main'] = str(e)
@@ -388,7 +593,8 @@ def get_agent_runtime(force_initialize=False):
         runtime["initialized"] = False
         return runtime["agents"], runtime["clients"], runtime["errors"], runtime["initialized"]
 
-    should_initialize = force_initialize or (not runtime["initialized"] and not IS_APP_SERVICE)
+    # Avoid blocking initial page render. Initialize only when explicitly requested.
+    should_initialize = force_initialize
 
     if should_initialize:
         agents_local, clients_local, errors_local = initialize_all_agents()
@@ -410,7 +616,7 @@ def determine_current_phase(conversation_history, last_state=None):
     1. Customer Intake - Gathering requirements
     2. Inventory Decision - Checking internal stock
     3. Product Agreement - Validating product selection
-    4. Insurance - Offering protection plans
+    4. Finance - Offering protection plans
     5. Final Consolidation - Generating quotation
     
     Args:
@@ -435,8 +641,8 @@ def determine_current_phase(conversation_history, last_state=None):
     if any(kw in conversation_text for kw in ['quotation', 'final price', 'ready to checkout', 'confirm order', 'total cost']):
         return 5
     
-    # Phase 4: Insurance keywords
-    if any(kw in conversation_text for kw in ['insurance', 'warranty', 'protection plan', 'coverage']):
+    # Phase 4: Finance keywords
+    if any(kw in conversation_text for kw in ['finance', 'financing', 'warranty', 'protection plan', 'coverage']):
         return 4
     
     # Phase 3: Product agreement keywords
@@ -444,7 +650,7 @@ def determine_current_phase(conversation_history, last_state=None):
         return 3
     
     # Phase 2: Inventory/product search keywords
-    if any(kw in conversation_text for kw in ['product', 'fridge', 'looking for', 'need', 'stock', 'available']):
+    if any(kw in conversation_text for kw in ['product', 'beauty', 'beauty tech', 'skincare device', 'looking for', 'need', 'stock', 'available']):
         return 2
     
     # Default: Phase 1 (intake)
@@ -461,8 +667,11 @@ if "iteration_counts" not in st.session_state:
     st.session_state.iteration_counts = {
         'customer_clarifications': 0,
         'product_agent_calls': 0,
-        'insurance_agent_calls': 0
+        'finance_agent_calls': 0
     }
+
+if "cart_items" not in st.session_state:
+    st.session_state.cart_items = []
 
 # Display initialization status in sidebar
 with st.sidebar:
@@ -480,7 +689,7 @@ with st.sidebar:
         (1, "Intake"),
         (2, "Inventory"),
         (3, "Agreement"),
-        (4, "Insurance"),
+        (4, "Finance"),
         (5, "Quotation")
     ]
     
@@ -497,7 +706,7 @@ with st.sidebar:
         else:
             phase_status.append(f"⚪ {title}")
     
-    st.markdown(" → ".join(phase_status))
+    st.markdown("<br>".join(phase_status), unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -511,22 +720,57 @@ with st.sidebar:
     if not agents_initialized:
         st.info("Agents will initialize on first request.")
     elif 'main' not in init_errors:
-        agent_icons = []
-        if agents.get('customer'):
-            agent_icons.append(get_agent_label_with_icon("BuyBuddy", "assistant"))
-        if agents.get('orchestrator'):
-            agent_icons.append(get_agent_label_with_icon("Orchestrator", "orchestrator"))
-        if agents.get('product'):
-            agent_icons.append(get_agent_label_with_icon("FridgeBuddy", "product_specialist"))
-        if agents.get('insurance'):
-            agent_icons.append(get_agent_label_with_icon("InsuranceBuddy", "insurance_specialist"))
-        
-        if agent_icons:
-            st.markdown(" | ".join(agent_icons), unsafe_allow_html=True)
+        # Exactly one agent is shown as active based on the current phase.
+        if current_phase == 2:
+            active_agent_key = 'product'
+        elif current_phase == 4:
+            active_agent_key = 'finance'
+        else:
+            active_agent_key = 'customer'
+
+        agent_cards = []
+        # Orchestrator remains internal and is not shown in user-facing UI.
+        agent_rows = [
+            ('customer', 'SkinTech', 'assistant'),
+            ('product', 'GlowBi', 'product_specialist'),
+            ('finance', 'DZBankFinancing', 'finance_specialist'),
+        ]
+
+        for key, label, icon_key in agent_rows:
+            if not agents.get(key):
+                continue
+            icon_html = get_agent_icon(icon_key)
+            state_class = "active" if key == active_agent_key else "inactive"
+            agent_cards.append(
+                f'<div class="agent-status-card {state_class}">{icon_html}<span class="agent-name">{html.escape(label)}</span></div>'
+            )
+
+        if agent_cards:
+            st.markdown(
+                '<div class="agent-status-list">' + ''.join(agent_cards) + '</div>',
+                unsafe_allow_html=True,
+            )
         else:
             st.warning("No agents configured")
     else:
         st.error("Initialization failed")
+
+    st.markdown("---")
+    st.subheader("Cart")
+    if st.session_state.cart_items:
+        cart_rows = []
+        for item in st.session_state.cart_items:
+            name = html.escape(_safe_text(item.get("name") or "Item"))
+            qty = int(item.get("quantity", 1))
+            cart_rows.append(
+                f'<div class="cart-row"><div class="cart-name">{name}</div><div class="cart-qty">Quantity: {qty}</div></div>'
+            )
+        st.markdown('<div class="cart-list">' + ''.join(cart_rows) + '</div>', unsafe_allow_html=True)
+        if st.button("Clear Cart", use_container_width=True):
+            st.session_state.cart_items = []
+            st.rerun()
+    else:
+        st.caption("Your cart is empty")
 
 def generate_quotation():
     """Generate a product quotation after all agents collaborate to finalize the offer"""
@@ -550,7 +794,7 @@ def generate_quotation():
         conversation_text += f"{sender}: {content}\n\n"
     
     # Create prompt for customer-facing retail_agent to generate quotation after collaboration
-    quotation_prompt = f"""Based on the collaboration between the assistant, product specialist, and insurance specialist in the conversation below, create a formal product quotation for the customer.
+    quotation_prompt = f"""Based on the collaboration between the assistant, product specialist, and finance specialist in the conversation below, create a formal product quotation for the customer.
 
 The quotation should include:
 1. Quotation Summary
@@ -695,7 +939,7 @@ def handle_customer_query(user_input, thinking_container):
                 agents.get('orchestrator'),
                 clients.get('orchestrator'),
                 (agents.get('product'), clients.get('product')),
-                (agents.get('insurance'), clients.get('insurance')),
+                (agents.get('finance'), clients.get('finance')),
                 st.session_state.messages,
                 st.session_state.iteration_counts,
             )
@@ -749,7 +993,7 @@ def handle_customer_query(user_input, thinking_container):
             add_thinking_step("Assistant not fully configured, using demo mode")
             return {
                 'thinking': "\n\n".join(thinking_steps),
-                'main_response': f"Assistant (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with product and insurance specialists as needed.",
+                'main_response': f"Assistant (Demo): Thank you for your query about '{user_input}'. I can help you with information, specifications, and coordinate with product and finance specialists as needed.",
                 'inventory_check': None,
                 'specialist_responses': []
             }
@@ -766,8 +1010,8 @@ def handle_customer_query(user_input, thinking_container):
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "BuyBuddy",
-        "content": "Hello! I'm BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
+        "sender": "SkinTech",
+        "content": "Hello! I'm SkinTech. I can help you with information, specifications, features, and more. I can also coordinate with product and finance specialists when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": get_agent_icon('retail_agent')
     }]
@@ -776,8 +1020,8 @@ if "messages" not in st.session_state:
 if st.sidebar.button("Reset Chat"):
     st.session_state.messages = [{
         "role": "agent",
-        "sender": "BuyBuddy",
-        "content": "Hello! I'm BuyBuddy. I can help you with information, specifications, features, and more. I can also coordinate with product and insurance specialists when needed. How can I assist you today?",
+        "sender": "SkinTech",
+        "content": "Hello! I'm SkinTech. I can help you with information, specifications, features, and more. I can also coordinate with product and finance specialists when needed. How can I assist you today?",
         "timestamp": datetime.now().strftime("%I:%M %p"),
         "icon": get_agent_icon('retail_agent')
     }]
@@ -785,10 +1029,11 @@ if st.sidebar.button("Reset Chat"):
     st.session_state.iteration_counts = {
         'customer_clarifications': 0,
         'product_agent_calls': 0,
-        'insurance_agent_calls': 0
+        'finance_agent_calls': 0
     }
     st.session_state.retail_state = None
     st.session_state.current_phase = 1
+    st.session_state.cart_items = []
     st.rerun()
 
 # Show quotation section only in final phase (Phase 5)
@@ -836,15 +1081,15 @@ for msg in st.session_state.messages:
     # Determine CSS class based on sender
     if msg["role"] == "user":
         css_class = "user-message"
-    elif "Assistant" in sender or "BuyBuddy" in sender:
+    elif "Assistant" in sender or "SkinTech" in sender:
         css_class = "retail-message"
         icon = icon or get_agent_icon("assistant")
-    elif "Product Specialist" in sender or "FridgeBuddy" in sender:
+    elif "Product Specialist" in sender or "GlowBi" in sender:
         css_class = "product-message"
         icon = get_agent_icon("product_specialist")
-    elif "Insurance Specialist" in sender or "InsuranceBuddy" in sender:
-        css_class = "insurance-message"
-        icon = get_agent_icon("insurance_specialist")
+    elif "Finance Specialist" in sender or "DZBankFinancing" in sender:
+        css_class = "finance-message"
+        icon = get_agent_icon("finance_specialist")
     else:
         css_class = "chat-message"
     
@@ -882,22 +1127,22 @@ for msg in st.session_state.messages:
             price = option.get("price") or option.get("base_price")
             availability = option.get("availability")
             dimensions = option.get("dimensions") or option.get("dimension") or option.get("size")
-            niche = option.get("niche") or option.get("niche_height")
-            capacity = option.get("capacity") or option.get("volume")
-            energy_class = option.get("energy_class") or option.get("energy")
-            noise = option.get("noise") or option.get("noise_level")
+            skin_concern = option.get("skin_concern") or option.get("concern") or option.get("niche") or option.get("niche_height")
+            runtime = option.get("runtime") or option.get("battery_life") or option.get("capacity") or option.get("volume")
+            technology = option.get("technology") or option.get("tech_type") or option.get("energy_class") or option.get("energy")
+            intensity = option.get("intensity") or option.get("mode") or option.get("noise") or option.get("noise_level")
             option_line = f"• {model_name}"
             detail_parts = []
             if dimensions:
                 detail_parts.append(f"Size: {dimensions}")
-            if niche:
-                detail_parts.append(f"Niche: {niche}")
-            if capacity:
-                detail_parts.append(f"Capacity: {capacity}")
-            if energy_class:
-                detail_parts.append(f"Energy: {energy_class}")
-            if noise:
-                detail_parts.append(f"Noise: {noise}")
+            if skin_concern:
+                detail_parts.append(f"Skin concern: {skin_concern}")
+            if runtime:
+                detail_parts.append(f"Runtime: {runtime}")
+            if technology:
+                detail_parts.append(f"Technology: {technology}")
+            if intensity:
+                detail_parts.append(f"Intensity: {intensity}")
             if price:
                 detail_parts.append(f"Price: {price}")
             if availability:
@@ -920,21 +1165,21 @@ for msg in st.session_state.messages:
             profile_lines.append(
                 f"• Price points: {', '.join(profile_from_options['price_values'][:4])}"
             )
-        if profile_from_options.get("energy_classes"):
+        if profile_from_options.get("technology_values"):
             profile_lines.append(
-                f"• Energy classes: {', '.join(profile_from_options['energy_classes'][:4])}"
+                f"• Technology types: {', '.join(profile_from_options['technology_values'][:4])}"
             )
-        if profile_from_options.get("niche_values"):
+        if profile_from_options.get("skin_concern_values"):
             profile_lines.append(
-                f"• Niche values: {', '.join(profile_from_options['niche_values'][:3])}"
+                f"• Skin concerns: {', '.join(profile_from_options['skin_concern_values'][:3])}"
             )
-        if profile_from_options.get("capacity_values"):
+        if profile_from_options.get("runtime_values"):
             profile_lines.append(
-                f"• Capacity values: {', '.join(profile_from_options['capacity_values'][:3])}"
+                f"• Runtime values: {', '.join(profile_from_options['runtime_values'][:3])}"
             )
-        if profile_from_options.get("noise_values"):
+        if profile_from_options.get("intensity_values"):
             profile_lines.append(
-                f"• Noise values: {', '.join(profile_from_options['noise_values'][:3])}"
+                f"• Intensity levels: {', '.join(profile_from_options['intensity_values'][:3])}"
             )
         if profile_from_options.get("brands"):
             profile_lines.append(
@@ -983,11 +1228,11 @@ for msg in st.session_state.messages:
                 specialist_css = "system-message"
                 specialist_icon = ""
             elif "product specialist" in str(specialist_sender).lower():
-                specialist_sender = "FridgeBuddy"
+                specialist_sender = "GlowBi"
                 specialist_icon = get_agent_icon("product_specialist")
-            elif "insurance specialist" in str(specialist_sender).lower():
-                specialist_sender = "InsuranceBuddy"
-                specialist_icon = get_agent_icon("insurance_specialist")
+            elif "finance specialist" in str(specialist_sender).lower():
+                specialist_sender = "DZBankFinancing"
+                specialist_icon = get_agent_icon("finance_specialist")
 
             if not specialist_content:
                 continue
@@ -1042,7 +1287,7 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
     response_time = datetime.now().strftime("%I:%M %p")
     agent_message = {
         "role": "agent",
-        "sender": "BuyBuddy",
+        "sender": "SkinTech",
         "content": result['main_response'],
         "timestamp": response_time,
         "icon": get_agent_icon('retail_agent'),
@@ -1051,5 +1296,13 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
         "specialist_responses": result.get('specialist_responses', [])
     }
     st.session_state.messages.append(agent_message)
+
+    # Update cart when user explicitly asks to add an item.
+    if _is_add_to_cart_intent(prompt):
+        item_name = _extract_cart_item_name_from_result(result)
+        if not item_name:
+            product_details = extract_product_details(st.session_state.messages)
+            item_name = _safe_text(product_details.get("product_model"))
+        _add_item_to_cart(item_name)
     
     st.rerun()
